@@ -1,421 +1,490 @@
 // import { useState, useCallback, useMemo } from "react";
 const { useState, useCallback, useMemo } = React;
 
-// ─── DATA (queries use Pokédex numbers & ranges for compactness) ─────────────
+const PRESETS = {
+  quick: { label: "Quick Clean", desc: "Fast daily cleanup — newest catches, maximum exclusions", age: "7" },
+  normal: { label: "Normal Session", desc: "Standard transfer session — recent catches, safe defaults", age: "30" },
+  deep: { label: "Deep Dive", desc: "Careful review — all ages, fewer exclusions", age: "none" },
+};
 
-const CORE = [
-  { key: "shiny", label: "Shiny", q: "!shiny", icon: "✦" },
-  { key: "legendary", label: "Legendary", q: "!legendary", icon: "◆" },
-  { key: "mythical", label: "Mythical", q: "!mythical", icon: "★" },
-  { key: "ultraBeast", label: "Ultra Beast", q: "!ultrabeast", icon: "◎" },
-  { key: "lucky", label: "Lucky", q: "!lucky", icon: "☘" },
-  { key: "traded", label: "Traded", q: "!traded", icon: "⇄" },
-  { key: "buddy", label: "Buddy (any level)", q: "!buddy1-5", icon: "♥" },
-  { key: "perfect", label: "Perfect IV (4★)", q: "!4*", icon: "💎" },
-  { key: "defender", label: "Gym Defenders", q: "!defender", icon: "🛡" },
-  { key: "favorite", label: "Favorited", q: "!favorite", icon: "⭐" },
-  { key: "hypertraining", label: "Hyper Training", q: "!hypertraining", icon: "🏋" },
+const CORE_EXCLUSIONS = [
+  { key: "shiny", label: "Shiny", query: "!shiny", icon: "✦" },
+  { key: "legendary", label: "Legendary", query: "!legendary", icon: "◆" },
+  { key: "mythical", label: "Mythical", query: "!mythical", icon: "★" },
+  { key: "ultraBeast", label: "Ultra Beast", query: "!ultrabeast", icon: "◎" },
+  { key: "lucky", label: "Lucky", query: "!lucky", icon: "☘" },
+  { key: "traded", label: "Traded", query: "!traded", icon: "⇄" },
+  { key: "buddy", label: "Buddy (any level)", query: "!buddy1-4", icon: "♥" },
+  { key: "perfect", label: "Perfect IV (4★)", query: "!4*", icon: "💎" },
+  { key: "defender", label: "Gym Defenders", query: "!defender", icon: "🛡" },
 ];
 
-const OPTIONAL = [
-  { key: "evolveNew", label: "New Evolutions", q: "!evolvenew", tip: "Pokémon with evolutions you haven't registered" },
-  { key: "costume", label: "Costume", q: "!costume", tip: "Event costume variants" },
-  { key: "shadow", label: "Shadow", q: "!shadow", tip: "Shadow Pokémon from Team Rocket" },
-  { key: "purified", label: "Purified", q: "!purified", tip: "Purified former Shadow Pokémon" },
-  { key: "eggsOnly", label: "Eggs Only", q: "!eggsonly", tip: "Species only available from eggs" },
-  { key: "dynamax", label: "Dynamax", q: "!dynamax", tip: "Dynamax-capable Pokémon" },
-  { key: "gigantamax", label: "Gigantamax", q: "!gigantamax", tip: "Gigantamax-capable Pokémon" },
-  { key: "xl", label: "XL Size", q: "!xl", tip: "Extra-large for showcases" },
-  { key: "xxl", label: "XXL Size", q: "!xxl", tip: "Extra-extra-large for showcases" },
-  { key: "xxs", label: "XXS Size", q: "!xxs", tip: "Extra-extra-small for showcases" },
-  { key: "tradeEvolve", label: "Trade Evolve", q: "!tradeevolve", tip: "Species that evolve free after trading" },
-  { key: "specialMoves", label: "Special Moves", q: "!@special", tip: "Legacy / Community Day / event moves" },
-  { key: "fusion", label: "Fusion", q: "!fusion", tip: "Pokémon eligible for or already fused" },
+const OPTIONAL_EXCLUSIONS = [
+  { key: "evolveNew", label: "New Evolutions", query: "!evolvenew", icon: "↑", tip: "Pokémon with evolutions you haven't registered" },
+  { key: "costume", label: "Costume", query: "!costume", icon: "🎩", tip: "Event costume variants" },
+  { key: "shadow", label: "Shadow", query: "!shadow", icon: "🌑", tip: "Shadow Pokémon from Team Rocket" },
+  { key: "purified", label: "Purified", query: "!purified", icon: "🌟", tip: "Purified former Shadow Pokémon" },
+  { key: "eggsOnly", label: "Eggs Only", query: "!eggsonly", icon: "🥚", tip: "Species only available from eggs" },
+  { key: "dynamax", label: "Dynamax", query: "!dynamax", icon: "⬆", tip: "Dynamax-capable Pokémon" },
+  { key: "gigantamax", label: "Gigantamax", query: "!gigantamax", icon: "🔺", tip: "Gigantamax-capable Pokémon" },
+  { key: "xl", label: "XL Size", query: "!xl", icon: "📏", tip: "Extra-large for showcases" },
+  { key: "xxl", label: "XXL Size", query: "!xxl", icon: "📐", tip: "Extra-extra-large for showcases" },
+  { key: "xxs", label: "XXS Size", query: "!xxs", icon: "🔬", tip: "Extra-extra-small for showcases" },
+  { key: "tradeEvolve", label: "Trade Evolve", query: "!tradeevolve", icon: "🔄", tip: "Species that evolve free after trading" },
+  { key: "specialMoves", label: "Special Moves", query: "!@special", icon: "⚡", tip: "Legacy / Community Day / event moves" },
 ];
 
-const GENDER = [
-  { key: "combee", label: "Combee", q: "!415", dex: "#415", note: "♀ → Vespiquen" },
-  { key: "snorunt", label: "Snorunt", q: "!361", dex: "#361", note: "♀ → Froslass" },
-  { key: "ralts", label: "Ralts / Kirlia", q: "!280-281", dex: "#280–281", note: "♂ → Gallade (#475)" },
-  { key: "salandit", label: "Salandit", q: "!757", dex: "#757", note: "♀ → Salazzle" },
-  { key: "burmy", label: "Burmy", q: "!412", dex: "#412", note: "♂ → Mothim, ♀ → Wormadam forms" },
-  { key: "espurr", label: "Espurr / Meowstic", q: "!677-678", dex: "#677–678", note: "♂ and ♀ have different movesets & stats" },
-  { key: "litleo", label: "Litleo / Pyroar", q: "!667-668", dex: "#667–668", note: "♂ and ♀ look very different" },
-  { key: "frillish", label: "Frillish / Jellicent", q: "!592-593", dex: "#592–593", note: "♂ and ♀ are distinct forms" },
+const GENDER_EVO_POKEMON = [
+  { key: "combee", label: "Combee", query: "!combee", note: "♀ → Vespiquen" },
+  { key: "snorunt", label: "Snorunt", query: "!snorunt", note: "♀ → Froslass" },
+  { key: "ralts", label: "Ralts line", query: "!ralts&!kirlia", note: "♂ → Gallade" },
+  { key: "salandit", label: "Salandit", query: "!salandit", note: "♀ → Salazzle" },
+  { key: "burmy", label: "Burmy", query: "!burmy", note: "♂ → Mothim, ♀ → Wormadam" },
 ];
 
-const RARE_FORMS = [
-  { key: "sinistea", label: "Sinistea / Polteageist", q: "!854-855", dex: "#854–855", note: "Antique form ~5%, costs 400 candy to evolve" },
-  { key: "rockruff", label: "Rockruff / Lycanroc", q: "!744-745", dex: "#744–745", note: "Dusk Form needs special Rockruff, evolve at dusk" },
-  { key: "dunsparce", label: "Dunsparce / Dudunsparce", q: "!206&!982", dex: "#206, #982", note: "Three-Segment is 1% evolution chance" },
-  { key: "tandemaus", label: "Tandemaus / Maushold", q: "!924-925", dex: "#924–925", note: "Family of Three is rare evolution variant" },
-  { key: "pumpkaboo", label: "Pumpkaboo / Gourgeist", q: "!710-711", dex: "#710–711", note: "Super Size is rare, event-limited" },
-  { key: "shellos", label: "Shellos / Gastrodon", q: "!422-423", dex: "#422–423", note: "East/West Sea forms split by hemisphere" },
-  { key: "deerling", label: "Deerling / Sawsbuck", q: "!585-586", dex: "#585–586", note: "Seasonal forms — some very rare" },
-  { key: "spinda", label: "Spinda", q: "!327", dex: "#327", note: "Many pattern variants, field research only" },
+const RARE_POKEMON = [
+  { key: "hisuian", label: "Hisuian Forms", query: "!hisuian" },
+  { key: "galarian", label: "Galarian Forms", query: "!galarian" },
+  { key: "unown", label: "Unown", query: "!unown" },
+  { key: "basculin", label: "Basculin", query: "!basculin" },
+  { key: "flabebe", label: "Flabébé line", query: "!flabebe&!floette&!florges" },
+  { key: "furfrou", label: "Furfrou", query: "!furfrou" },
+  { key: "vivillon", label: "Vivillon line", query: "!vivillon&!scatterbug&!spewpa" },
+  { key: "oricorio", label: "Oricorio", query: "!oricorio" },
 ];
-
-const RARE_SPECIES = [
-  { key: "hisui", label: "Hisui region forms", q: "!hisui", dex: "keyword", note: "Hisuian Voltorb, Growlithe, Zorua, etc." },
-  { key: "galar", label: "Galar region forms", q: "!galar", dex: "keyword", note: "Galarian Ponyta, Zigzagoon, Stunfisk, etc." },
-  { key: "paldea", label: "Paldea region forms", q: "!paldea", dex: "keyword", note: "Paldean Tauros breeds, Wooper, etc." },
-  { key: "unown", label: "Unown", q: "!201", dex: "#201", note: "28 letter/symbol forms, most event-only" },
-  { key: "furfrou", label: "Furfrou", q: "!676", dex: "#676", note: "Trims locked by real-world region" },
-  { key: "vivillon", label: "Scatterbug / Spewpa / Vivillon", q: "!664-666", dex: "#664–666", note: "Patterns by real-world region" },
-  { key: "oricorio", label: "Oricorio", q: "!741", dex: "#741", note: "4 styles locked by real-world region" },
-  { key: "flabebe", label: "Flabébé / Floette / Florges", q: "!669-671", dex: "#669–671", note: "Colors by real-world region" },
-];
-
-// Regionals grouped by generation. Each item is an evolution line.
-const REGIONAL_GROUPS = [
-  { group: "Gen 1 — Kanto", items: [
-    { key: "r_farfetchd", label: "Farfetch'd", q: "!83", dex: "#83", note: "Japan / Korea / Taiwan / HK" },
-    { key: "r_kangaskhan", label: "Kangaskhan", q: "!115", dex: "#115", note: "Australia" },
-    { key: "r_mrmime", label: "Mr. Mime / Mime Jr.", q: "!122&!439", dex: "#122, #439", note: "Europe" },
-    { key: "r_tauros", label: "Tauros", q: "!128", dex: "#128", note: "US / Southern Canada" },
-  ]},
-  { group: "Gen 2 — Johto", items: [
-    { key: "r_heracross", label: "Heracross", q: "!214", dex: "#214", note: "Latin America / S. Florida / S. Texas" },
-    { key: "r_corsola", label: "Corsola", q: "!222", dex: "#222", note: "Tropics (near equator)" },
-  ]},
-  { group: "Gen 3 — Hoenn", items: [
-    { key: "r_volbeatillumise", label: "Volbeat / Illumise", q: "!313-314", dex: "#313–314", note: "Rotate hemispheres" },
-    { key: "r_torkoal", label: "Torkoal", q: "!324", dex: "#324", note: "South / Southeast Asia / India" },
-    { key: "r_zangooseseviper", label: "Zangoose / Seviper", q: "!335-336", dex: "#335–336", note: "Rotate hemispheres" },
-    { key: "r_lunatonesolrock", label: "Lunatone / Solrock", q: "!337-338", dex: "#337–338", note: "Rotate hemispheres" },
-    { key: "r_tropius", label: "Tropius", q: "!357", dex: "#357", note: "Africa / Mediterranean" },
-    { key: "r_relicanth", label: "Relicanth", q: "!369", dex: "#369", note: "New Zealand / Fiji" },
-  ]},
-  { group: "Gen 4 — Sinnoh", items: [
-    { key: "r_pachirisu", label: "Pachirisu", q: "!417", dex: "#417", note: "Far North (Canada / Alaska / Russia)" },
-    { key: "r_chatot", label: "Chatot", q: "!441", dex: "#441", note: "Southern Hemisphere" },
-    { key: "r_carnivine", label: "Carnivine", q: "!455", dex: "#455", note: "Southeast United States" },
-  ]},
-  { group: "Gen 5 — Unova", items: [
-    { key: "r_monkeys", label: "Pansage / Pansear / Panpour", q: "!511&!513&!515", dex: "#511,513,515", note: "Split by continent" },
-    { key: "r_throhsawk", label: "Throh / Sawk", q: "!538-539", dex: "#538–539", note: "Split by hemisphere" },
-    { key: "r_maractus", label: "Maractus", q: "!556", dex: "#556", note: "Mexico / Central & South America" },
-    { key: "r_sigilyph", label: "Sigilyph", q: "!561", dex: "#561", note: "Egypt / Greece" },
-    { key: "r_bouffalant", label: "Bouffalant", q: "!626", dex: "#626", note: "New York City area" },
-    { key: "r_heatmordurant", label: "Heatmor / Durant", q: "!631-632", dex: "#631–632", note: "Split by hemisphere" },
-  ]},
-  { group: "Gen 6+ — Kalos / Alola", items: [
-    { key: "r_hawlucha", label: "Hawlucha", q: "!701", dex: "#701", note: "Mexico" },
-    { key: "r_klefki", label: "Klefki", q: "!707", dex: "#707", note: "France area" },
-    { key: "r_comfey", label: "Comfey", q: "!764", dex: "#764", note: "Hawaii" },
-  ]},
-];
-
-const ALL_REGIONAL_ITEMS = REGIONAL_GROUPS.flatMap(g => g.items);
 
 const AGE_OPTIONS = [
-  { value: "none", label: "No filter" },
-  { value: "1", label: "1 day" }, { value: "3", label: "3 days" },
-  { value: "7", label: "7 days" }, { value: "14", label: "2 weeks" },
-  { value: "30", label: "30 days" }, { value: "90", label: "3 months" },
-  { value: "180", label: "6 months" }, { value: "365", label: "1 year" },
+  { value: "none", label: "No age filter", desc: "All Pokémon regardless of age" },
+  { value: "1", label: "Last 1 day", desc: "Today's catches only" },
+  { value: "3", label: "Last 3 days", desc: "Very recent catches" },
+  { value: "7", label: "Last 7 days", desc: "This week's catches" },
+  { value: "14", label: "Last 2 weeks", desc: "Recent catches" },
+  { value: "30", label: "Last 30 days", desc: "This month's catches" },
+  { value: "90", label: "Last 3 months", desc: "Recent season" },
+  { value: "180", label: "Last 6 months", desc: "Half year" },
+  { value: "365", label: "Last year", desc: "This year's catches" },
 ];
 
-// ─── HELPERS ─────────────────────────────────────────────────────────────────
-
-const mkOn = items => Object.fromEntries(items.map(e => [e.key, true]));
-const mkOff = items => Object.fromEntries(items.map(e => [e.key, false]));
-
-const PRESETS = {
-  quick:  { core: mkOn(CORE), opt: mkOn(OPTIONAL), gen: mkOn(GENDER), rf: mkOn(RARE_FORMS), rs: mkOn(RARE_SPECIES), reg: mkOn(ALL_REGIONAL_ITEMS), age: "7" },
-  normal: { core: mkOn(CORE), opt: mkOn(OPTIONAL), gen: mkOn(GENDER), rf: mkOn(RARE_FORMS), rs: mkOn(RARE_SPECIES), reg: mkOff(ALL_REGIONAL_ITEMS), age: "30" },
-  deep:   { core: mkOn(CORE), opt: mkOff(OPTIONAL), gen: mkOff(GENDER), rf: mkOff(RARE_FORMS), rs: mkOff(RARE_SPECIES), reg: mkOff(ALL_REGIONAL_ITEMS), age: "none" },
-};
-
-// ─── REUSABLE UI ─────────────────────────────────────────────────────────────
-
-const s = { // shared micro-styles
-  card: { background: "rgba(255,255,255,0.02)", borderRadius: 11, border: "1px solid rgba(255,255,255,0.05)", marginBottom: 10, overflow: "hidden" },
-  mono: { fontFamily: "'JetBrains Mono',monospace" },
-};
-
-const Toggle = ({ on, set }) => (
-  <button onClick={() => set(!on)} style={{
-    width: 38, height: 21, borderRadius: 11, border: "none",
-    background: on ? "#3dd8a5" : "#363644", position: "relative",
-    cursor: "pointer", transition: "background 0.15s", flexShrink: 0,
-  }}>
+const Toggle = ({ checked, onChange, disabled }) => (
+  <button
+    onClick={() => !disabled && onChange(!checked)}
+    style={{
+      width: 42, height: 24, borderRadius: 12, border: "none",
+      background: disabled ? "#555" : checked ? "#3dd8a5" : "#4a4a5a",
+      position: "relative", cursor: disabled ? "not-allowed" : "pointer",
+      transition: "background 0.2s", flexShrink: 0, opacity: disabled ? 0.5 : 1,
+    }}
+  >
     <span style={{
-      position: "absolute", top: 2, left: on ? 19 : 2,
-      width: 17, height: 17, borderRadius: 9, background: "#fff",
-      transition: "left 0.12s", boxShadow: "0 1px 2px rgba(0,0,0,0.25)",
+      position: "absolute", top: 2, left: checked ? 20 : 2,
+      width: 20, height: 20, borderRadius: 10,
+      background: "#fff", transition: "left 0.2s",
+      boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
     }} />
   </button>
 );
 
-function Pill({ items, state }) {
-  const ct = items.filter(e => state[e.key]).length;
-  const t = items.length;
-  const color = ct === t ? "#3dd8a5" : ct === 0 ? "#ff6b6b" : "#ffc832";
-  const bg = ct === t ? "rgba(61,216,165,0.12)" : ct === 0 ? "rgba(255,100,100,0.1)" : "rgba(255,200,50,0.1)";
-  return <span style={{ fontSize: 9.5, fontWeight: 700, padding: "2px 6px", borderRadius: 5, background: bg, color, whiteSpace: "nowrap" }}>
-    {ct === t ? `All ${t}` : ct === 0 ? "None" : `${ct}/${t}`}
-  </span>;
-}
+const SectionHeader = ({ children, subtitle }) => (
+  <div style={{ marginBottom: 12, marginTop: 4 }}>
+    <h3 style={{
+      fontFamily: "'DM Sans', sans-serif", fontSize: 15, fontWeight: 700,
+      color: "#e8e8ec", margin: 0, letterSpacing: "0.02em",
+      textTransform: "uppercase",
+    }}>{children}</h3>
+    {subtitle && <p style={{
+      fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#8888a0",
+      margin: "3px 0 0 0",
+    }}>{subtitle}</p>}
+  </div>
+);
 
-function BulkBtns({ items, setState, setPreset }) {
-  const go = val => { setState(p => { const n = { ...p }; items.forEach(e => n[e.key] = val); return n; }); setPreset(null); };
-  return <div style={{ display: "flex", gap: 4 }}>
-    {[["All on", true], ["All off", false]].map(([l, v]) => (
-      <button key={l} onClick={() => go(v)} style={{ fontSize: 9.5, padding: "2px 8px", borderRadius: 5, border: "1px solid rgba(255,255,255,0.06)", background: "transparent", color: "#5a5a6a", cursor: "pointer" }}>{l}</button>
-    ))}
-  </div>;
-}
-
-function ItemRow({ item, checked, toggle }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 0", gap: 8 }}>
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 5, fontSize: 12.5, color: "#bbbbc8" }}>
-          {item.icon && <span style={{ fontSize: 12, flexShrink: 0 }}>{item.icon}</span>}
-          <span>{item.label}</span>
-          {item.dex && <span style={{ ...s.mono, fontSize: 9.5, color: "#444458", flexShrink: 0 }}>{item.dex}</span>}
-        </div>
-        {(item.note || item.tip) && <div style={{ fontSize: 10, color: "#444458", marginLeft: item.icon ? 19 : 0, marginTop: 1 }}>{item.note || item.tip}</div>}
-      </div>
-      <Toggle on={checked} set={toggle} />
-    </div>
-  );
-}
-
-// Flat section (core, optional, gender, rare forms, rare species)
-function Section({ emoji, title, subtitle, items, state, setState, setPreset, startOpen }) {
-  const [open, setOpen] = useState(startOpen || false);
-  return (
-    <div style={s.card}>
-      <button onClick={() => setOpen(!open)} style={{ width: "100%", background: "none", border: "none", cursor: "pointer", padding: "11px 13px", display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 14 }}>{emoji}</span>
-        <div style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: "#dddde8" }}>{title}</span>
-          {!open && subtitle && <div style={{ fontSize: 9.5, color: "#4a4a58", marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{subtitle}</div>}
-        </div>
-        <Pill items={items} state={state} />
-        <span style={{ color: "#3a3a48", fontSize: 12, transition: "transform 0.2s", transform: open ? "rotate(180deg)" : "none" }}>▾</span>
-      </button>
-      {open && (
-        <div style={{ padding: "0 13px 10px" }}>
-          {subtitle && <div style={{ fontSize: 10.5, color: "#4a4a58", marginBottom: 6, lineHeight: 1.4 }}>{subtitle}</div>}
-          <div style={{ marginBottom: 6 }}><BulkBtns items={items} setState={setState} setPreset={setPreset} /></div>
-          {items.map(e => <ItemRow key={e.key} item={e} checked={state[e.key]} toggle={v => { setState(p => ({ ...p, [e.key]: v })); setPreset(null); }} />)}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Grouped section (regionals — has sub-groups with their own all-on/off)
-function GroupedSection({ emoji, title, subtitle, groups, allItems, state, setState, setPreset }) {
-  const [open, setOpen] = useState(false);
-  const [expanded, setExpanded] = useState({});
-  const toggleGroup = g => setExpanded(p => ({ ...p, [g]: !p[g] }));
-
-  return (
-    <div style={s.card}>
-      <button onClick={() => setOpen(!open)} style={{ width: "100%", background: "none", border: "none", cursor: "pointer", padding: "11px 13px", display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 14 }}>{emoji}</span>
-        <div style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: "#dddde8" }}>{title}</span>
-          {!open && subtitle && <div style={{ fontSize: 9.5, color: "#4a4a58", marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{subtitle}</div>}
-        </div>
-        <Pill items={allItems} state={state} />
-        <span style={{ color: "#3a3a48", fontSize: 12, transition: "transform 0.2s", transform: open ? "rotate(180deg)" : "none" }}>▾</span>
-      </button>
-      {open && (
-        <div style={{ padding: "0 13px 10px" }}>
-          {subtitle && <div style={{ fontSize: 10.5, color: "#4a4a58", marginBottom: 6, lineHeight: 1.4 }}>{subtitle}</div>}
-          <div style={{ marginBottom: 8 }}><BulkBtns items={allItems} setState={setState} setPreset={setPreset} /></div>
-          {groups.map(g => {
-            const isOpen = expanded[g.group];
-            const gCt = g.items.filter(e => state[e.key]).length;
-            const gT = g.items.length;
-            return (
-              <div key={g.group} style={{ marginBottom: 4 }}>
-                <button onClick={() => toggleGroup(g.group)} style={{
-                  width: "100%", background: "rgba(255,255,255,0.015)", border: "none", borderRadius: 7,
-                  cursor: "pointer", padding: "7px 10px", display: "flex", alignItems: "center", gap: 6,
-                  marginBottom: isOpen ? 2 : 0,
-                }}>
-                  <span style={{ fontSize: 11.5, fontWeight: 600, color: "#8a8a9a", flex: 1, textAlign: "left" }}>{g.group}</span>
-                  <span style={{
-                    fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 4,
-                    background: gCt === gT ? "rgba(61,216,165,0.1)" : gCt === 0 ? "rgba(255,100,100,0.08)" : "rgba(255,200,50,0.08)",
-                    color: gCt === gT ? "#3dd8a5" : gCt === 0 ? "#ff6b6b" : "#ffc832",
-                  }}>{gCt}/{gT}</span>
-                  <div style={{ display: "flex", gap: 3 }} onClick={e => e.stopPropagation()}>
-                    {[["On", true], ["Off", false]].map(([l, v]) => (
-                      <button key={l} onClick={() => { setState(p => { const n = { ...p }; g.items.forEach(i => n[i.key] = v); return n; }); setPreset(null); }} style={{
-                        fontSize: 9, padding: "1px 6px", borderRadius: 4,
-                        border: "1px solid rgba(255,255,255,0.05)", background: "transparent",
-                        color: "#555568", cursor: "pointer",
-                      }}>{l}</button>
-                    ))}
-                  </div>
-                  <span style={{ color: "#3a3a48", fontSize: 10, transition: "transform 0.2s", transform: isOpen ? "rotate(180deg)" : "none" }}>▾</span>
-                </button>
-                {isOpen && (
-                  <div style={{ paddingLeft: 10 }}>
-                    {g.items.map(e => <ItemRow key={e.key} item={e} checked={state[e.key]} toggle={v => { setState(p => ({ ...p, [e.key]: v })); setPreset(null); }} />)}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── MAIN APP ────────────────────────────────────────────────────────────────
-
-function App() {
+function PokemonGOFilterBuilder() {
   const [preset, setPreset] = useState("normal");
-  const d = PRESETS.normal;
-  const [core, setCore] = useState(d.core);
-  const [opt, setOpt] = useState(d.opt);
-  const [gen, setGen] = useState(d.gen);
-  const [rf, setRf] = useState(d.rf);
-  const [rs, setRs] = useState(d.rs);
-  const [reg, setReg] = useState(d.reg);
+
+  const defaultCore = Object.fromEntries(CORE_EXCLUSIONS.map(e => [e.key, true]));
+  const defaultOptional = Object.fromEntries(OPTIONAL_EXCLUSIONS.map(e => [e.key, true]));
+  const defaultGender = Object.fromEntries(GENDER_EVO_POKEMON.map(e => [e.key, true]));
+  const defaultRare = Object.fromEntries(RARE_POKEMON.map(e => [e.key, true]));
+
+  const deepOptionalOff = {
+    evolveNew: false, costume: false, shadow: false, purified: false,
+    eggsOnly: false, dynamax: false, gigantamax: false, xl: false, xxl: false, xxs: false,
+    tradeEvolve: false, specialMoves: false,
+  };
+
+  const [core, setCore] = useState(defaultCore);
+  const [optional, setOptional] = useState(defaultOptional);
+  const [gender, setGender] = useState(defaultGender);
+  const [rare, setRare] = useState(defaultRare);
   const [age, setAge] = useState("30");
   const [copied, setCopied] = useState(false);
-  const [notesOpen, setNotesOpen] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
 
-  const applyPreset = useCallback(p => {
-    setPreset(p); const v = PRESETS[p];
-    setCore(v.core); setOpt(v.opt); setGen(v.gen);
-    setRf(v.rf); setRs(v.rs); setReg(v.reg); setAge(v.age);
+  const applyPreset = useCallback((p) => {
+    setPreset(p);
+    setCore(defaultCore);
+    if (p === "quick") {
+      setOptional(defaultOptional);
+      setGender(defaultGender);
+      setRare(defaultRare);
+      setAge("7");
+    } else if (p === "normal") {
+      setOptional(defaultOptional);
+      setGender(defaultGender);
+      setRare(defaultRare);
+      setAge("30");
+    } else {
+      setOptional(deepOptionalOff);
+      setGender(Object.fromEntries(GENDER_EVO_POKEMON.map(e => [e.key, false])));
+      setRare(Object.fromEntries(RARE_POKEMON.map(e => [e.key, false])));
+      setAge("none");
+    }
   }, []);
 
   const searchString = useMemo(() => {
     const parts = [];
-    const add = (items, st) => items.forEach(e => { if (st[e.key]) parts.push(e.q); });
-    add(CORE, core); add(OPTIONAL, opt); add(GENDER, gen);
-    add(RARE_FORMS, rf); add(RARE_SPECIES, rs); add(ALL_REGIONAL_ITEMS, reg);
+    CORE_EXCLUSIONS.forEach(e => { if (core[e.key]) parts.push(e.query); });
+    OPTIONAL_EXCLUSIONS.forEach(e => { if (optional[e.key]) parts.push(e.query); });
+    GENDER_EVO_POKEMON.forEach(e => { if (gender[e.key]) parts.push(e.query); });
+    RARE_POKEMON.forEach(e => { if (rare[e.key]) parts.push(e.query); });
     if (age !== "none") parts.push(`age0-${age}`);
     return parts.join("&");
-  }, [core, opt, gen, rf, rs, reg, age]);
-
-  const len = searchString.length;
+  }, [core, optional, gender, rare, age]);
 
   const handleCopy = async () => {
-    try { await navigator.clipboard.writeText(searchString); } catch {
-      const ta = document.createElement("textarea"); ta.value = searchString;
-      document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta);
+    try {
+      await navigator.clipboard.writeText(searchString);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = searchString;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
-    setCopied(true); setTimeout(() => setCopied(false), 2000);
+  };
+
+  const toggleAllInGroup = (group, setGroup, items, value) => {
+    setGroup(Object.fromEntries(items.map(e => [e.key, value])));
+    setPreset(null);
+  };
+
+  const groupAllOn = (group, items) => items.every(e => group[e.key]);
+  const groupAllOff = (group, items) => items.every(e => !group[e.key]);
+
+  const cardStyle = {
+    background: "rgba(255,255,255,0.03)", borderRadius: 12,
+    border: "1px solid rgba(255,255,255,0.06)", padding: "16px 18px",
+    marginBottom: 14,
+  };
+
+  const rowStyle = {
+    display: "flex", alignItems: "center", justifyContent: "space-between",
+    padding: "7px 0", gap: 10,
+  };
+
+  const labelStyle = {
+    fontFamily: "'DM Sans', sans-serif", fontSize: 14, color: "#c8c8d8",
+    display: "flex", alignItems: "center", gap: 8,
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: "#13131b", fontFamily: "'DM Sans',sans-serif", color: "#dddde8" }}>
+    <div style={{
+      minHeight: "100vh", background: "#16161e",
+      fontFamily: "'DM Sans', sans-serif", color: "#e8e8ec",
+    }}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 
       {/* Header */}
-      <div style={{ background: "linear-gradient(145deg,#183848 0%,#13131b 55%)", borderBottom: "1px solid rgba(61,216,165,0.1)", padding: "18px 14px 14px" }}>
-        <div style={{ maxWidth: 580, margin: "0 auto" }}>
-          <h1 style={{ fontSize: 18, fontWeight: 700, margin: "0 0 2px", display: "flex", alignItems: "center", gap: 7 }}>
-            <span>📦</span>
-            <span style={{ background: "linear-gradient(90deg,#3dd8a5,#60e8c0)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Transfer Filter Builder</span>
-          </h1>
-          <p style={{ fontSize: 11, color: "#4a7080", margin: 0 }}>Pokémon GO search string builder — uses dex numbers for compact queries</p>
+      <div style={{
+        background: "linear-gradient(135deg, #1a3a4a 0%, #16161e 70%)",
+        borderBottom: "1px solid rgba(61,216,165,0.15)",
+        padding: "24px 20px 20px",
+      }}>
+        <div style={{ maxWidth: 640, margin: "0 auto" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+            <span style={{ fontSize: 22 }}>📦</span>
+            <h1 style={{
+              fontSize: 22, fontWeight: 700, margin: 0,
+              background: "linear-gradient(90deg, #3dd8a5, #5be8c0)",
+              WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
+            }}>Transfer Filter Builder</h1>
+          </div>
+          <p style={{ fontSize: 13, color: "#7898a8", margin: 0, lineHeight: 1.5 }}>
+            Build search strings for Pokémon GO to find transfer candidates.
+            Copy the string below and paste it into the in-game search bar.
+          </p>
         </div>
       </div>
 
-      <div style={{ maxWidth: 580, margin: "0 auto", padding: "10px 10px 120px" }}>
+      <div style={{ maxWidth: 640, margin: "0 auto", padding: "16px 16px 100px" }}>
 
-        {/* ── Sticky Output ── */}
-        <div style={{ position: "sticky", top: 0, zIndex: 100, background: "#13131b", paddingTop: 5, paddingBottom: 3, borderBottom: "1px solid rgba(255,255,255,0.03)", marginBottom: 10 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-            <span style={{ fontSize: 9, color: "#3a4858", textTransform: "uppercase", letterSpacing: ".08em", fontWeight: 600 }}>Search String</span>
-            <span style={{ ...s.mono, fontSize: 9, color: len > 450 ? "#ff6b6b" : len > 350 ? "#ffd93d" : "#3a4858" }}>{len} chars{len > 450 ? " ⚠" : ""}</span>
-          </div>
-          <div onClick={handleCopy} style={{
-            background: "rgba(61,216,165,0.035)", border: "1px solid rgba(61,216,165,0.13)",
-            borderRadius: 8, padding: "8px 10px", cursor: "pointer", position: "relative",
-            ...s.mono, fontSize: 10, color: "#7aaa98", lineHeight: 1.55,
-            wordBreak: "break-all", maxHeight: 80, overflowY: "auto",
-          }}>
-            {searchString || <span style={{ color: "#2a2a38" }}>No filters selected</span>}
+        {/* Search String Output - Sticky */}
+        <div style={{
+          position: "sticky", top: 0, zIndex: 100,
+          background: "#16161e", paddingTop: 10, paddingBottom: 8,
+          borderBottom: "1px solid rgba(255,255,255,0.06)",
+          marginBottom: 16,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+            <span style={{ fontSize: 11, color: "#7888a0", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>
+              Generated Search String
+            </span>
             <span style={{
-              position: "absolute", top: 4, right: 6,
-              background: copied ? "#3dd8a5" : "rgba(61,216,165,0.1)",
-              color: copied ? "#13131b" : "#3dd8a5",
-              padding: "2px 6px", borderRadius: 4, fontSize: 9, fontWeight: 700,
-              fontFamily: "'DM Sans',sans-serif",
-            }}>{copied ? "✓ Copied!" : "Copy"}</span>
+              fontSize: 11, fontFamily: "'JetBrains Mono', monospace",
+              color: searchString.length > 450 ? "#ff6b6b" : searchString.length > 350 ? "#ffd93d" : "#5a6a7a",
+            }}>
+              {searchString.length} chars
+            </span>
           </div>
+          <div
+            onClick={handleCopy}
+            style={{
+              background: "rgba(61,216,165,0.06)", border: "1px solid rgba(61,216,165,0.2)",
+              borderRadius: 10, padding: "12px 14px", cursor: "pointer",
+              fontFamily: "'JetBrains Mono', monospace", fontSize: 11,
+              color: "#a0d8c8", lineHeight: 1.6, wordBreak: "break-all",
+              maxHeight: 120, overflowY: "auto",
+              transition: "border-color 0.2s, background 0.2s",
+              position: "relative",
+            }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(61,216,165,0.5)"; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(61,216,165,0.2)"; }}
+          >
+            {searchString || <span style={{ color: "#556" }}>No filters selected</span>}
+            <div style={{
+              position: "absolute", top: 8, right: 10,
+              background: copied ? "#3dd8a5" : "rgba(61,216,165,0.15)",
+              color: copied ? "#16161e" : "#3dd8a5",
+              padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600,
+              fontFamily: "'DM Sans', sans-serif", transition: "all 0.2s",
+            }}>
+              {copied ? "Copied!" : "Tap to copy"}
+            </div>
+          </div>
+          {searchString.length > 450 && (
+            <p style={{ fontSize: 11, color: "#ff6b6b", margin: "6px 0 0 0" }}>
+              ⚠ This string may exceed Pokémon GO's search character limit. Try disabling some filters.
+            </p>
+          )}
         </div>
 
-        {/* ── Presets ── */}
-        <div style={{ display: "flex", gap: 5, marginBottom: 10 }}>
-          {[["quick", "Quick Clean", "Max exclusions, 7d"], ["normal", "Normal", "Safe defaults, 30d"], ["deep", "Deep Dive", "Fewer exclusions, all ages"]].map(([k, l, d]) => (
-            <button key={k} onClick={() => applyPreset(k)} style={{
-              flex: 1, padding: "7px 8px", borderRadius: 8, cursor: "pointer", textAlign: "left",
-              background: preset === k ? "rgba(61,216,165,0.07)" : "rgba(255,255,255,0.015)",
-              border: `1px solid ${preset === k ? "rgba(61,216,165,0.25)" : "rgba(255,255,255,0.03)"}`,
-            }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: preset === k ? "#3dd8a5" : "#9090a0" }}>{l}</div>
-              <div style={{ fontSize: 9, color: "#444458", marginTop: 1 }}>{d}</div>
+        {/* Presets */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
+          {Object.entries(PRESETS).map(([key, p]) => (
+            <button
+              key={key}
+              onClick={() => applyPreset(key)}
+              style={{
+                flex: 1, minWidth: 100, padding: "10px 12px",
+                background: preset === key ? "rgba(61,216,165,0.12)" : "rgba(255,255,255,0.03)",
+                border: `1px solid ${preset === key ? "rgba(61,216,165,0.4)" : "rgba(255,255,255,0.06)"}`,
+                borderRadius: 10, cursor: "pointer", textAlign: "left",
+                transition: "all 0.2s",
+              }}
+            >
+              <div style={{ fontSize: 13, fontWeight: 600, color: preset === key ? "#3dd8a5" : "#c8c8d8", marginBottom: 2 }}>
+                {p.label}
+              </div>
+              <div style={{ fontSize: 11, color: "#6a6a7a", lineHeight: 1.3 }}>{p.desc}</div>
             </button>
           ))}
         </div>
 
-        {/* ── Sections ── */}
-        <Section emoji="🔒" title="Core Keepers" subtitle="Always excluded — never accidentally transfer these" items={CORE} state={core} setState={setCore} setPreset={setPreset} />
-        <Section emoji="🎯" title="Optional Exclusions" subtitle="Excluded by default — toggle off for deeper dives" items={OPTIONAL} state={opt} setState={setOpt} setPreset={setPreset} />
-        <Section emoji="♀♂" title="Gender-Dependent Pokémon" subtitle="Gender-based evolutions and form differences — keep both genders" items={GENDER} state={gen} setState={setGen} setPreset={setPreset} />
-        <Section emoji="🎲" title="Rare Form Variants" subtitle="Species with rare evolution outcomes or limited forms" items={RARE_FORMS} state={rf} setState={setRf} setPreset={setPreset} />
-        <Section emoji="💎" title="Rare & Regional-Form Species" subtitle="Hard-to-get species and forms locked by real-world region" items={RARE_SPECIES} state={rs} setState={setRs} setPreset={setPreset} />
-        <GroupedSection emoji="🌍" title="Regional Exclusives" subtitle="Real-world region-locked species — grouped by generation, off by default" groups={REGIONAL_GROUPS} allItems={ALL_REGIONAL_ITEMS} state={reg} setState={setReg} setPreset={setPreset} />
-
-        {/* ── Age Filter ── */}
-        <div style={{ ...s.card, padding: "11px 13px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <span style={{ fontSize: 14 }}>📅</span>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 700 }}>Age Filter</div>
-              <div style={{ fontSize: 10, color: "#4a4a58", marginTop: 1 }}>Newer catches first — older ones are better lucky trade fodder</div>
+        {/* Core Exclusions */}
+        <div style={cardStyle}>
+          <SectionHeader subtitle="Always excluded — the Pokémon you never want to accidentally transfer">
+            🔒 Core Keepers
+          </SectionHeader>
+          {CORE_EXCLUSIONS.map(e => (
+            <div key={e.key} style={rowStyle}>
+              <span style={labelStyle}>
+                <span style={{ width: 20, textAlign: "center", fontSize: 14 }}>{e.icon}</span>
+                {e.label}
+              </span>
+              <Toggle checked={core[e.key]} onChange={(v) => { setCore(p => ({ ...p, [e.key]: v })); setPreset(null); }} />
             </div>
-            <span style={{
-              fontSize: 9.5, fontWeight: 700, padding: "2px 6px", borderRadius: 5,
-              background: age === "none" ? "rgba(255,100,100,0.1)" : "rgba(61,216,165,0.12)",
-              color: age === "none" ? "#ff6b6b" : "#3dd8a5",
-            }}>{age === "none" ? "Off" : `≤${age}d`}</span>
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
-            {AGE_OPTIONS.map(o => (
-              <button key={o.value} onClick={() => { setAge(o.value); setPreset(null); }} style={{
-                padding: "5px 9px", borderRadius: 6, border: "none", cursor: "pointer",
-                background: age === o.value ? "rgba(61,216,165,0.08)" : "rgba(255,255,255,0.02)",
-                outline: age === o.value ? "1px solid rgba(61,216,165,0.22)" : "none",
-                fontSize: 10.5, color: age === o.value ? "#dddde8" : "#5a5a68",
-                fontWeight: age === o.value ? 600 : 400,
-              }}>{o.label}</button>
-            ))}
-          </div>
+          ))}
         </div>
 
-        {/* ── Notes ── */}
-        <div style={s.card}>
-          <button onClick={() => setNotesOpen(!notesOpen)} style={{
-            width: "100%", background: "none", border: "none", cursor: "pointer",
-            padding: "11px 13px", display: "flex", alignItems: "center", justifyContent: "space-between",
-          }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: "#5a5a6a" }}>📝 Notes & Tips</span>
-            <span style={{ color: "#3a3a48", fontSize: 12, transition: "transform 0.2s", transform: notesOpen ? "rotate(180deg)" : "none" }}>▾</span>
+        {/* Optional Exclusions */}
+        <div style={cardStyle}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+            <SectionHeader subtitle="Excluded by default — toggle off individually for deeper dives">
+              🎯 Optional Exclusions
+            </SectionHeader>
+            <div style={{ display: "flex", gap: 6, flexShrink: 0, paddingTop: 2 }}>
+              <button
+                onClick={() => toggleAllInGroup(optional, setOptional, OPTIONAL_EXCLUSIONS, true)}
+                disabled={groupAllOn(optional, OPTIONAL_EXCLUSIONS)}
+                style={{
+                  fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)",
+                  background: "transparent", color: groupAllOn(optional, OPTIONAL_EXCLUSIONS) ? "#444" : "#8888a0",
+                  cursor: groupAllOn(optional, OPTIONAL_EXCLUSIONS) ? "default" : "pointer",
+                }}>All on</button>
+              <button
+                onClick={() => toggleAllInGroup(optional, setOptional, OPTIONAL_EXCLUSIONS, false)}
+                disabled={groupAllOff(optional, OPTIONAL_EXCLUSIONS)}
+                style={{
+                  fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)",
+                  background: "transparent", color: groupAllOff(optional, OPTIONAL_EXCLUSIONS) ? "#444" : "#8888a0",
+                  cursor: groupAllOff(optional, OPTIONAL_EXCLUSIONS) ? "default" : "pointer",
+                }}>All off</button>
+            </div>
+          </div>
+          {OPTIONAL_EXCLUSIONS.map(e => (
+            <div key={e.key} style={rowStyle}>
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                <span style={labelStyle}>
+                  <span style={{ width: 20, textAlign: "center", fontSize: 14 }}>{e.icon}</span>
+                  {e.label}
+                </span>
+                {e.tip && <span style={{ fontSize: 11, color: "#5a5a6a", marginLeft: 28 }}>{e.tip}</span>}
+              </div>
+              <Toggle checked={optional[e.key]} onChange={(v) => { setOptional(p => ({ ...p, [e.key]: v })); setPreset(null); }} />
+            </div>
+          ))}
+        </div>
+
+        {/* Gender-Specific Evolutions */}
+        <div style={cardStyle}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+            <SectionHeader subtitle="Species where gender matters for evolution — keep until deep dive">
+              ♀♂ Gender Evolution Species
+            </SectionHeader>
+            <div style={{ display: "flex", gap: 6, flexShrink: 0, paddingTop: 2 }}>
+              <button
+                onClick={() => toggleAllInGroup(gender, setGender, GENDER_EVO_POKEMON, true)}
+                disabled={groupAllOn(gender, GENDER_EVO_POKEMON)}
+                style={{
+                  fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)",
+                  background: "transparent", color: groupAllOn(gender, GENDER_EVO_POKEMON) ? "#444" : "#8888a0",
+                  cursor: groupAllOn(gender, GENDER_EVO_POKEMON) ? "default" : "pointer",
+                }}>All on</button>
+              <button
+                onClick={() => toggleAllInGroup(gender, setGender, GENDER_EVO_POKEMON, false)}
+                disabled={groupAllOff(gender, GENDER_EVO_POKEMON)}
+                style={{
+                  fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)",
+                  background: "transparent", color: groupAllOff(gender, GENDER_EVO_POKEMON) ? "#444" : "#8888a0",
+                  cursor: groupAllOff(gender, GENDER_EVO_POKEMON) ? "default" : "pointer",
+                }}>All off</button>
+            </div>
+          </div>
+          {GENDER_EVO_POKEMON.map(e => (
+            <div key={e.key} style={rowStyle}>
+              <div>
+                <span style={labelStyle}>{e.label}</span>
+                <span style={{ fontSize: 11, color: "#6a7a8a", marginLeft: 0, display: "block" }}>{e.note}</span>
+              </div>
+              <Toggle checked={gender[e.key]} onChange={(v) => { setGender(p => ({ ...p, [e.key]: v })); setPreset(null); }} />
+            </div>
+          ))}
+        </div>
+
+        {/* Rare / Special Pokemon */}
+        <div style={cardStyle}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+            <SectionHeader subtitle="Hard-to-get species and forms — keep unless doing a careful review">
+              💎 Rare & Special Forms
+            </SectionHeader>
+            <div style={{ display: "flex", gap: 6, flexShrink: 0, paddingTop: 2 }}>
+              <button
+                onClick={() => toggleAllInGroup(rare, setRare, RARE_POKEMON, true)}
+                disabled={groupAllOn(rare, RARE_POKEMON)}
+                style={{
+                  fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)",
+                  background: "transparent", color: groupAllOn(rare, RARE_POKEMON) ? "#444" : "#8888a0",
+                  cursor: groupAllOn(rare, RARE_POKEMON) ? "default" : "pointer",
+                }}>All on</button>
+              <button
+                onClick={() => toggleAllInGroup(rare, setRare, RARE_POKEMON, false)}
+                disabled={groupAllOff(rare, RARE_POKEMON)}
+                style={{
+                  fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)",
+                  background: "transparent", color: groupAllOff(rare, RARE_POKEMON) ? "#444" : "#8888a0",
+                  cursor: groupAllOff(rare, RARE_POKEMON) ? "default" : "pointer",
+                }}>All off</button>
+            </div>
+          </div>
+          {RARE_POKEMON.map(e => (
+            <div key={e.key} style={rowStyle}>
+              <span style={labelStyle}>{e.label}</span>
+              <Toggle checked={rare[e.key]} onChange={(v) => { setRare(p => ({ ...p, [e.key]: v })); setPreset(null); }} />
+            </div>
+          ))}
+        </div>
+
+        {/* Age Filter */}
+        <div style={cardStyle}>
+          <SectionHeader subtitle="Newer catches first — older Pokémon are more likely to trigger lucky trades">
+            📅 Age Filter
+          </SectionHeader>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {AGE_OPTIONS.map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => { setAge(opt.value); setPreset(null); }}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  padding: "10px 14px", borderRadius: 8, border: "none",
+                  background: age === opt.value ? "rgba(61,216,165,0.1)" : "transparent",
+                  cursor: "pointer", transition: "background 0.15s",
+                  outline: age === opt.value ? "1px solid rgba(61,216,165,0.3)" : "1px solid transparent",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{
+                    width: 16, height: 16, borderRadius: 8,
+                    border: `2px solid ${age === opt.value ? "#3dd8a5" : "#4a4a5a"}`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                    {age === opt.value && <div style={{ width: 8, height: 8, borderRadius: 4, background: "#3dd8a5" }} />}
+                  </div>
+                  <span style={{ fontSize: 14, color: age === opt.value ? "#e8e8ec" : "#9898a8", fontWeight: age === opt.value ? 600 : 400 }}>
+                    {opt.label}
+                  </span>
+                </div>
+                <span style={{ fontSize: 11, color: "#5a5a6a" }}>{opt.desc}</span>
+              </button>
+            ))}
+          </div>
+          {age !== "none" && (
+            <div style={{
+              marginTop: 10, padding: "8px 12px", borderRadius: 8,
+              background: "rgba(61,216,165,0.05)", border: "1px solid rgba(61,216,165,0.1)",
+              fontSize: 12, color: "#7aaa98",
+            }}>
+              Showing only Pokémon caught within the last {age} day{age !== "1" ? "s" : ""}. 
+              Older Pokémon (better for lucky trades) are hidden.
+            </div>
+          )}
+        </div>
+
+        {/* Notes */}
+        <div style={cardStyle}>
+          <button
+            onClick={() => setShowNotes(!showNotes)}
+            style={{
+              background: "none", border: "none", cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              width: "100%", padding: 0,
+            }}
+          >
+            <span style={{ fontSize: 14, fontWeight: 600, color: "#8888a0" }}>📝 Usage Notes & Tips</span>
+            <span style={{ color: "#5a5a6a", fontSize: 18, transform: showNotes ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>▾</span>
           </button>
-          {notesOpen && (
-            <div style={{ padding: "0 13px 10px", fontSize: 10.5, color: "#5a5a68", lineHeight: 1.65 }}>
-              <p style={{ margin: "0 0 6px" }}><b style={{ color: "#8888a0" }}>How to use:</b> Copy → Pokémon GO → Storage → Search bar → Paste. Results are transfer candidates.</p>
-              <p style={{ margin: "0 0 6px" }}><b style={{ color: "#8888a0" }}>Why numbers?</b> Dex numbers (e.g. <code style={{ ...s.mono, fontSize: 9.5, background: "rgba(255,255,255,0.04)", padding: "1px 3px", borderRadius: 3 }}>!83</code> instead of <code style={{ ...s.mono, fontSize: 9.5, background: "rgba(255,255,255,0.04)", padding: "1px 3px", borderRadius: 3 }}>!farfetch'd</code>) are much shorter. Ranges like <code style={{ ...s.mono, fontSize: 9.5, background: "rgba(255,255,255,0.04)", padding: "1px 3px", borderRadius: 3 }}>!313-314</code> cover consecutive dex entries. This keeps the string under the ~500 char limit.</p>
-              <p style={{ margin: "0 0 6px" }}><b style={{ color: "#8888a0" }}>Lucky trades:</b> Pokémon older than ~1 year have higher lucky trade odds. Age filter helps you transfer newer catches first.</p>
-              <p style={{ margin: "0 0 6px" }}><b style={{ color: "#8888a0" }}>Not in GO yet:</b> Indeedee, Oinkologne (Lechonk), Basculegion — will need entries when released.</p>
-              <p style={{ margin: 0 }}><b style={{ color: "#8888a0" }}>Reference:</b>{" "}<a href="https://niantic.helpshift.com/hc/en/6-pokemon-go/faq/1486-searching-filtering-your-pokemon-inventory/" target="_blank" rel="noopener" style={{ color: "#3dd8a5" }}>Niantic's official search guide</a>. Dex number search and ranges are confirmed by the <a href="https://pokemongo.fandom.com/wiki/Pok%C3%A9mon_search" target="_blank" rel="noopener" style={{ color: "#3dd8a5" }}>Pokémon GO Wiki</a>.</p>
+          {showNotes && (
+            <div style={{ marginTop: 12, fontSize: 12, color: "#8888a0", lineHeight: 1.7 }}>
+              <p style={{ margin: "0 0 8px 0" }}><strong style={{ color: "#a8a8b8" }}>How to use:</strong> Copy the generated string and paste it into Pokémon GO's search bar in the Pokémon storage screen. Everything shown is a transfer candidate.</p>
+              <p style={{ margin: "0 0 8px 0" }}><strong style={{ color: "#a8a8b8" }}>Workflow:</strong> Start with <em>Quick Clean</em> for daily maintenance. Use <em>Normal Session</em> for weekly cleanup. Switch to <em>Deep Dive</em> when storage is critically full and review carefully.</p>
+              <p style={{ margin: "0 0 8px 0" }}><strong style={{ color: "#a8a8b8" }}>Lucky trade tip:</strong> Pokémon older than ~1 year have increased lucky trade odds. The age filter helps you transfer newer catches first to preserve these.</p>
+              <p style={{ margin: "0 0 8px 0" }}><strong style={{ color: "#a8a8b8" }}>Character limit:</strong> Pokémon GO's search bar has a character limit (~500 chars). If the string is too long, disable some optional filters — the rare/special and gender-evo sections add up quickly.</p>
+              <p style={{ margin: "0 0 0 0" }}><strong style={{ color: "#a8a8b8" }}>Note:</strong> Some search terms (like <code style={{ background: "rgba(255,255,255,0.05)", padding: "1px 4px", borderRadius: 3 }}>hisuian</code>, <code style={{ background: "rgba(255,255,255,0.05)", padding: "1px 4px", borderRadius: 3 }}>galarian</code>) depend on your game's language setting and may need adjustment. Verify in-game that each filter works as expected.</p>
             </div>
           )}
         </div>
@@ -425,4 +494,4 @@ function App() {
 }
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(<App />);
+root.render(<PokemonGOFilterBuilder />);
