@@ -1,4 +1,5 @@
-import { useState, useCallback, useMemo } from "react";
+// import { useState, useCallback, useMemo } from "react";
+const { useState, useCallback, useMemo } = React;
 
 // ─── DATA (queries use Pokédex numbers & ranges for compactness) ─────────────
 
@@ -272,7 +273,7 @@ function GroupedSection({ emoji, title, subtitle, groups, allItems, state, setSt
 
 // ─── MAIN APP ────────────────────────────────────────────────────────────────
 
-export default function App() {
+function App() {
   const [preset, setPreset] = useState("normal");
   const d = PRESETS.normal;
   const [core, setCore] = useState(d.core);
@@ -422,3 +423,6 @@ export default function App() {
     </div>
   );
 }
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
