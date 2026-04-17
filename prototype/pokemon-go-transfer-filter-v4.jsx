@@ -1,4 +1,5 @@
 // import { useState, useCallback, useMemo } from "react";
+const { useState, useCallback, useMemo } = React;
 
 // ─── DATA (queries use Pokédex numbers & ranges for compactness) ─────────────
 
