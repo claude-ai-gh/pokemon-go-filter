@@ -1,8 +1,8 @@
 # Pokémon GO Transfer Filter Builder — Product Requirements Document
 
-**Version:** 1.2  
+**Version:** 1.3  
 **Last Updated:** July 2026  
-**Status:** Prototype v5 — beta feedback incorporated (sections restructure, Find mode, auto-compaction, mobile UX)
+**Status:** Prototype v6 — beta feedback incorporated (Find mode, Quick Clean auto-compaction, mobile UX)
 
 ---
 
@@ -454,8 +454,10 @@ Each toggle row must show:
 
 The tool is a fully client-side application with no backend. It consists of:
 
-- `pokemon-go-transfer-filter-v5.html` — loads React, ReactDOM, and Babel from CDN; references the JSX file
-- `pokemon-go-transfer-filter-v5.jsx` — the complete React application
+- `pokemon-go-transfer-filter-v6.html` — loads React, ReactDOM, and Babel from CDN; references the JSX file
+- `pokemon-go-transfer-filter-v6.jsx` — the complete React application
+
+(Prior iterations `-v1` through `-v5` remain in `prototype/` for reference; `-v5` is the sections-restructure milestone described below, `-v6` adds Find mode, auto-compaction, and the mobile fixes.)
 
 ### 6.2 Dependencies (CDN-loaded)
 
@@ -501,7 +503,7 @@ The Pokémon data in the tool needs to be updated when:
 
 Each update to the Pokémon data should be documented with the date and what changed.
 
-- **July 2026 (v5, second beta round)**: Added Find mode (positive filter — same toggles used to select Pokémon instead of excluding them). Added transfer-mode auto-compaction so long strings (notably Quick Clean) always fit the ~500-char limit by merging nearby dex ranges. Mobile UX overhaul: viewport meta tag, larger type and touch targets, no-zoom numeric input.
+- **July 2026 (v6)**: Added Find mode (positive filter — same toggles used to select Pokémon instead of excluding them). Added transfer-mode auto-compaction so long strings (notably Quick Clean) always fit the ~500-char limit by merging nearby dex ranges. Mobile UX overhaul: viewport meta tag, larger type and touch targets, no-zoom numeric input.
 - **July 2026 (v5)**: Restructured species sections per beta feedback into two grouped sections — "Branching & Variants" (Branched Evolutions, Gender-based Evolutions, Gender Appearance Differences, Regional Variants, Form Variation) and "Hard to Get" (Biome Exclusive, Regional Exclusive, Rare Encounters) — with per-species toggles and automatic dex-range merging. Added catch-year exclusions (`!yearYYYY`) and a custom age input to the Age Filter. Replaced keyword-based regional-form filters (`!hisui`, `!galar`, `!paldea`) with an explicit Regional Variants list; expanded Rare Encounters and Regional Exclusive lists.
 - **May 2026 (v4)**: Added Lechonk/Oinkologne to gender-dependent section; added Silicobra/Sandaconda to biome-locked section.
 
