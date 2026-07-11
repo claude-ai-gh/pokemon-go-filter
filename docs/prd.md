@@ -1,8 +1,8 @@
 # Pokémon GO Transfer Filter Builder — Product Requirements Document
 
-**Version:** 1.1  
+**Version:** 1.2  
 **Last Updated:** July 2026  
-**Status:** Prototype v5 — beta feedback incorporated
+**Status:** Prototype v5 — beta feedback incorporated (sections restructure, Find mode, auto-compaction, mobile UX)
 
 ---
 
@@ -56,11 +56,30 @@ Active Pokémon GO players (typically level 30+) who catch enough Pokémon to fi
 
 **Old-Catch Curator** — Player wants to protect their oldest catches (best lucky trade odds) while clearing newer ones. Uses catch-year exclusions (e.g., exclude 2016–2018) alongside or instead of the age presets.
 
+**Collection Finder** — Player wants to locate Pokémon rather than transfer them (e.g., "all my regional or biome exclusives that are shiny or perfect" to show off, trade, or power up). Switches to Find mode and selects the species and qualities to match.
+
 ---
 
 ## 3. Feature Requirements
 
-### 3.1 Presets
+### 3.1 Query Modes
+
+The tool has two modes, switched by a prominent segmented control near the top. Each mode keeps its own independent toggle state, preserved when switching back and forth.
+
+**Transfer Cleanup (default)** — the original workflow. Enabled toggles are *exclusions*: the query joins them with AND (`&`) so the results are safe-to-transfer candidates (everything not protected). Transfer mode starts from the Normal preset.
+
+**Find Pokémon (positive filter)** — reuses the same sections and toggle structure, but reversed: enabled toggles *select* Pokémon to show. Semantics:
+
+- All selected **species** (Branching & Variants, Hard to Get) are OR'd together into one clause (comma-joined dex numbers/ranges)
+- All selected **qualities** (the Core Keepers and Optional Exclusions lists, relabeled "Qualities" / "More Qualities" in this mode, with keywords used positively — `shiny`, `4*`, `costume`, …) are OR'd into a second clause
+- The clauses are AND'd: `species₁,species₂,…&quality₁,quality₂,…` — e.g., selecting the Regional Exclusive and Biome Exclusive subsections plus Shiny and Perfect IV produces `83,115,…,960-961,978&shiny,4*` ("any regional or biome exclusive that is shiny or perfect")
+- The age filter and year exclusions apply in Find mode too, as additional AND terms
+
+This matches Pokémon GO's documented query grammar: an AND of clauses (`&`), each clause an OR of terms (`,`).
+
+Find mode starts with everything off (find queries are narrow), hides the transfer presets, and shows a short explainer of the reversed semantics. Empty-state status pills render neutral (gray) rather than red, since "nothing selected" is the natural starting point in this mode.
+
+### 3.2 Presets (Transfer mode only)
 
 The tool must provide three one-tap presets that configure all sections simultaneously:
 
@@ -76,7 +95,7 @@ Applying a preset also clears any custom age value and any catch-year exclusions
 
 Presets serve as starting points. Any manual toggle change after selecting a preset should deselect the preset indicator (the tool is now in "custom" mode). The preset buttons should visually indicate which (if any) is currently active.
 
-### 3.2 Filter Sections
+### 3.3 Filter Sections
 
 The tool has four toggle sections plus the Age Filter:
 
@@ -88,7 +107,7 @@ The tool has four toggle sections plus the Age Filter:
 
 All sections must be collapsible, showing a summary status (e.g., "All 11", "8/13", "None") when collapsed. Each section must have bulk "All on" / "All off" controls. Each individual item must have its own toggle. Grouped sections additionally give each subsection its own collapse control, status count, and On/Off bulk controls.
 
-#### 3.2.1 Core Keepers
+#### 3.3.1 Core Keepers
 
 Always-on exclusions that protect the most universally valuable Pokémon. Users almost always want these excluded from the filter query (the results are transfer candidates, so excluding means protecting). These should rarely be turned off, but the user has the option.
 
@@ -106,7 +125,7 @@ Always-on exclusions that protect the most universally valuable Pokémon. Users 
 | Favorited | `!favorite` | User has explicitly marked as important |
 | Hyper Training | `!hypertraining` | Investment in progress |
 
-#### 3.2.2 Optional Exclusions
+#### 3.3.2 Optional Exclusions
 
 Excluded by default in Quick Clean and Normal modes, all disabled in Deep Dive. These are categories players generally want to keep but may need to review (and delete from) during deep-dive space crunches.
 
@@ -126,7 +145,7 @@ Excluded by default in Quick Clean and Normal modes, all disabled in Deep Dive. 
 | Special Moves | `!@special` | Legacy / CD / event-exclusive moves |
 | Fusion | `!fusion` | Fusion-eligible Pokémon |
 
-#### 3.2.3 Branching & Variants
+#### 3.3.3 Branching & Variants
 
 Grouped section covering species whose evolutions branch, or whose forms/appearances vary. Each subsection lists individual Pokémon (one toggle per species). Everything in this section is on in Quick Clean and Normal, off in Deep Dive.
 
@@ -193,7 +212,7 @@ Grouped section covering species whose evolutions branch, or whose forms/appeara
 | Deerling | #585 | Four seasonal forms — some very rare |
 | Sawsbuck | #586 | Four seasonal forms — some very rare |
 
-#### 3.2.4 Hard to Get
+#### 3.3.4 Hard to Get
 
 Grouped section covering species that are difficult to (re-)obtain. Subsections: Biome Exclusive and Rare Encounters are on in Quick Clean and Normal; Regional Exclusive is on only in Quick Clean (off in Normal because of character cost); everything is off in Deep Dive.
 
@@ -282,7 +301,7 @@ Note: Basculin (#550) appears in both Form Variation and Regional Exclusive. The
 | Gholdengo | #1000 | Requires 999 Gimmighoul Coins |
 | Poltchageist | #1012 | Very limited availability |
 
-#### 3.2.5 Age Filter
+#### 3.3.5 Age Filter
 
 The age filter section has three parts:
 
@@ -305,6 +324,7 @@ The year list must be generated from the current date so new years appear automa
 The tool generates a single search string using Pokémon GO's documented syntax:
 
 - `&` joins AND conditions (all must match)
+- `,` joins OR terms within a clause (used by Find mode, e.g. `83,115&shiny,4*`)
 - `!` excludes matching Pokémon
 - Pokédex numbers are used for specific species (e.g., `!83` for Farfetch'd)
 - Game keywords are used for category filters (e.g., `!shiny`, `!legendary`)
@@ -319,9 +339,19 @@ Species toggles are stored as individual dex numbers. At query-generation time, 
 2. **Sorted and merged into ranges** — consecutive runs collapse to `!start-end` (e.g., Wurmple line #265–269 → `!265-269`), even across subsection boundaries (e.g., Castform #351 in Form Variation + Kecleon #352 in Rare Encounters → `!351-352`)
 3. Singles stay single (`!206`)
 
-This produces the shortest possible dex-number portion of the query for any combination of toggles.
+This produces the shortest possible dex-number portion of the query for any combination of toggles. In Transfer mode ranges are emitted as `&`-joined exclusions (`!265-269`); in Find mode the same ranges are emitted positively, comma-joined into one OR clause (`265-269,280-281`).
 
-### 4.3 Output Format
+### 4.3 Auto-Compaction (Transfer mode)
+
+Because Transfer-mode exclusions only ever *protect* Pokémon, bridging the gap between two nearby ranges is always safe — it over-protects the in-between species (they simply stop appearing as transfer candidates) but can never expose a keeper. The tool exploits this to guarantee the string fits the in-game limit:
+
+1. Generate the query normally (keywords + merged ranges + years + age)
+2. If it exceeds the compaction target (490 chars, leaving margin under the ~500 limit), greedily merge the pair of adjacent dex ranges with the **smallest gap** (fewest species over-protected, ties broken by most characters saved), and repeat until the string fits
+3. Show a notice under the output: "Auto-compacted to fit the 500-char limit: nearby dex ranges merged, protecting N extra in-between species"
+
+This makes the Quick Clean preset — previously ~650 characters and unusable — emit a valid ~490-character string (over-protecting ~125 mid-gap species, mostly evolved forms that rarely appear as fresh catches). Presets with fewer toggles (e.g., Normal) fit without compaction and are emitted exactly. Compaction never applies to keywords, year terms, or the age term, and never applies in Find mode (a too-long Find query shows the red over-limit warning instead).
+
+### 4.4 Output Format
 
 All enabled exclusions are joined with `&`, ordered: keywords, dex numbers/ranges, year exclusions, age term. Example output for the Normal preset with the 30-day age filter (488 characters):
 
@@ -329,15 +359,15 @@ All enabled exclusions are joined with `&`, ordered: keywords, dex numbers/range
 !shiny&!legendary&!mythical&!ultrabeast&!lucky&!traded&!buddy1-5&!4*&!defender&!favorite&!hypertraining&!evolvenew&!costume&!shadow&!purified&!eggsonly&!dynamax&!gigantamax&!xl&!xxl&!xxs&!tradeevolve&!@special&!fusion&!26&!103&!105&!110&!132&!201&!206&!265-269&!280-281&!290-292&!327&!349&!351-352&!361&!366&!412&!415&!421&!442&!479&!519-521&!550&!585-586&!592-593&!621&!667-668&!677-678&!744&!775-780&!840&!843&!848&!854&!876&!902&!924&!935&!960-961&!965-966&!968&!999-1000&!1012&age0-30
 ```
 
-### 4.4 Character Limit
+### 4.5 Character Limit
 
-Pokémon GO's search bar has an approximate 500-character limit. The tool must display a real-time character count and provide visual warnings:
+Pokémon GO's search bar has an approximate 500-character limit. The tool must display a real-time character count ("N/500 chars") and provide visual warnings:
 
-- Green/neutral: under 350 characters
-- Yellow: 350–450 characters
-- Red: over 450 characters, with a warning that the string may be truncated in-game
+- Green/neutral: up to 400 characters
+- Yellow: 400–500 characters (close to the limit)
+- Red: over 500 characters with a "too long" warning — only reachable in Find mode, since Transfer mode auto-compacts (§4.3)
 
-The character limit is the primary reason for using Pokédex numbers instead of species names — names are 5–15 characters each while numbers are 1–3 characters. Note that with the expanded v5 species lists, the Quick Clean preset (everything on) exceeds the ~500 character limit (~650 characters); users must trim toggles — typically Regional Exclusive species they don't own — to get under it. See §8 Known Limitations.
+The character limit is the primary reason for using Pokédex numbers instead of species names — names are 5–15 characters each while numbers are 1–3 characters.
 
 ---
 
@@ -350,10 +380,11 @@ The interface uses a single-column layout optimized for mobile screens (~380px v
 **Visual hierarchy (top to bottom):**
 
 1. Header with tool name and brief description
-2. Sticky search string output with copy button and character counter
-3. Preset buttons (Quick Clean / Normal / Deep Dive)
-4. Collapsible filter sections (Core Keepers → Optional Exclusions → Branching & Variants → Hard to Get → Age Filter)
-5. Collapsible notes and tips section
+2. Sticky search string output with copy button, character counter, and (when active) the auto-compaction notice
+3. Mode switch (Transfer Cleanup / Find Pokémon)
+4. Preset buttons (Quick Clean / Normal / Deep Dive) in Transfer mode; Find-mode explainer card in Find mode
+5. Collapsible filter sections (Core Keepers → Optional Exclusions → Branching & Variants → Hard to Get → Age Filter)
+6. Collapsible notes and tips section
 
 ### 5.2 Collapsible Sections
 
@@ -361,7 +392,7 @@ Each filter section must:
 
 - Be collapsed by default (except possibly Core Keepers on first load)
 - Show a summary when collapsed: emoji icon, section title, brief subtitle, and status pill
-- The status pill must show the toggle count state: "All N" (green), "X/N" (yellow), or "None" (red)
+- The status pill must show the toggle count state: "All N" (green), "X/N" (yellow), or "None" (red in Transfer mode, neutral gray in Find mode)
 - Expand on tap to reveal individual toggles
 - Provide "All on" / "All off" bulk buttons when expanded
 
@@ -386,7 +417,7 @@ Each toggle row must show:
 
 ### 5.5 Toggle Behavior
 
-- Toggles must be large enough for comfortable mobile tapping (minimum 38×20px touch target)
+- Toggles must be large enough for comfortable mobile tapping (46×26px switches; buttons and chips at least ~40px tall)
 - Toggle state changes must immediately update the search string output
 - Any manual toggle change must deselect the active preset indicator
 
@@ -405,8 +436,11 @@ Each toggle row must show:
 
 ### 5.8 Mobile Web Requirements
 
+- The HTML page must declare `<meta name="viewport" content="width=device-width, initial-scale=1">` — without it, phones render the page at desktop width and everything appears unreadably small (this was the root cause of the beta "hard to use on my phone" feedback)
 - The tool must render correctly on mobile Safari (iOS) and Chrome (Android) at viewport widths from 320px to 428px
 - Touch targets must meet minimum 44×44px accessibility guidelines where possible
+- Text inputs must use `font-size: 16px` or larger so iOS Safari does not auto-zoom on focus, and `inputmode="numeric"` for number entry
+- Buttons should set `touch-action: manipulation` (no double-tap-zoom delay) and suppress the default tap highlight
 - The sticky output bar must not obscure content and must remain functional during scroll
 - Text sizes must be readable without pinch-to-zoom
 - No horizontal scrolling should be required
@@ -467,6 +501,7 @@ The Pokémon data in the tool needs to be updated when:
 
 Each update to the Pokémon data should be documented with the date and what changed.
 
+- **July 2026 (v5, second beta round)**: Added Find mode (positive filter — same toggles used to select Pokémon instead of excluding them). Added transfer-mode auto-compaction so long strings (notably Quick Clean) always fit the ~500-char limit by merging nearby dex ranges. Mobile UX overhaul: viewport meta tag, larger type and touch targets, no-zoom numeric input.
 - **July 2026 (v5)**: Restructured species sections per beta feedback into two grouped sections — "Branching & Variants" (Branched Evolutions, Gender-based Evolutions, Gender Appearance Differences, Regional Variants, Form Variation) and "Hard to Get" (Biome Exclusive, Regional Exclusive, Rare Encounters) — with per-species toggles and automatic dex-range merging. Added catch-year exclusions (`!yearYYYY`) and a custom age input to the Age Filter. Replaced keyword-based regional-form filters (`!hisui`, `!galar`, `!paldea`) with an explicit Regional Variants list; expanded Rare Encounters and Regional Exclusive lists.
 - **May 2026 (v4)**: Added Lechonk/Oinkologne to gender-dependent section; added Silicobra/Sandaconda to biome-locked section.
 
@@ -474,7 +509,8 @@ Each update to the Pokémon data should be documented with the date and what cha
 
 ## 8. Known Limitations
 
-- **Character limit**: With all sections enabled (Quick Clean preset), the string is ~650 characters and exceeds the ~500 limit; the Normal preset sits just under it (~490). The tool mitigates this with dex numbers and automatic range merging and warns the user, but cannot enforce the exact limit since Niantic hasn't publicly documented it precisely. Users enabling everything must trim toggles (typically Regional Exclusives) to fit.
+- **Compaction trade-off**: Transfer strings are guaranteed to fit the ~500-char limit via auto-compaction (§4.3), but heavily-loaded configurations (e.g., Quick Clean) achieve this by over-protecting in-between species — those Pokémon won't appear as transfer candidates even though the user never asked to protect them. The exact in-game limit is undocumented, so the compaction target (490) is a best guess with margin.
+- **Find mode length**: Find mode has no compaction (over-inclusion would change search results, unlike over-protection); very broad Find selections can exceed the limit and show a red warning instead.
 - **Language dependency**: Keyword filters (`!shiny`, `!legendary`, etc.) work across languages, but some terms may behave differently in non-English game clients. Pokédex numbers are language-independent.
 - **Year filter availability**: The `year` search term is a relatively recent addition to Pokémon GO; on very old app versions the `!yearYYYY` terms may be ignored.
 - **No persistence**: The tool does not save user preferences between sessions. Each visit starts with the default preset. This is intentional to avoid complexity, but could be added later using localStorage.

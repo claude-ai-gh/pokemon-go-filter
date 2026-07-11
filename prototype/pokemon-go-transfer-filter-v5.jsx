@@ -186,6 +186,11 @@ const CURRENT_YEAR = new Date().getFullYear();
 const YEARS = [];
 for (let y = 2016; y <= CURRENT_YEAR; y++) YEARS.push(String(y));
 
+// In-game search bar truncates around ~500 characters. Compaction aims a bit
+// lower to leave margin, since Niantic hasn't documented the exact limit.
+const CHAR_LIMIT = 500;
+const COMPACT_TARGET = 490;
+
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
 const mkOn = items => Object.fromEntries(items.map(e => [e.key, true]));
@@ -206,74 +211,93 @@ const PRESETS = {
   deep:   { core: mkOn(CORE), opt: mkOff(OPTIONAL), bv: mkOff(ALL_BRANCHING_ITEMS), htg: mkOff(ALL_HARD_TO_GET_ITEMS), age: "none" },
 };
 
-// Merge a set of dex numbers into compact exclusion terms:
-// consecutive runs become ranges (!265-269), singles stay single (!206).
-const mergeDexExclusions = nums => {
+// Collapse a list of dex numbers into sorted, deduplicated {s,e} ranges.
+const toRanges = nums => {
   const sorted = [...new Set(nums)].sort((a, b) => a - b);
-  const parts = [];
-  let start = null, prev = null;
-  const flush = () => {
-    if (start === null) return;
-    parts.push(start === prev ? `!${start}` : `!${start}-${prev}`);
-  };
+  const ranges = [];
   for (const n of sorted) {
-    if (start !== null && n === prev + 1) { prev = n; continue; }
-    flush(); start = prev = n;
+    const last = ranges[ranges.length - 1];
+    if (last && n === last.e + 1) last.e = n;
+    else ranges.push({ s: n, e: n });
   }
-  flush();
-  return parts;
+  return ranges;
+};
+const rangeTerm = (r, prefix) => r.s === r.e ? `${prefix}${r.s}` : `${prefix}${r.s}-${r.e}`;
+const rangesLen = ranges => ranges.reduce((sum, r) => sum + rangeTerm(r, "!").length, 0) + Math.max(0, ranges.length - 1);
+
+// Auto-compaction for transfer mode: excluding extra dex numbers only protects
+// MORE Pokémon, so bridging small gaps between ranges is always safe. Greedily
+// merge the pair of adjacent ranges with the smallest gap (fewest in-between
+// species over-protected) until the dex portion fits its character budget.
+// Returns the merged ranges plus how many extra species got absorbed.
+const compactRanges = (ranges, budget) => {
+  ranges = ranges.map(r => ({ ...r }));
+  let hidden = 0;
+  while (ranges.length > 1 && rangesLen(ranges) > budget) {
+    let best = 0, bestGap = Infinity, bestSaved = -1;
+    for (let i = 0; i < ranges.length - 1; i++) {
+      const gap = ranges[i + 1].s - ranges[i].e - 1;
+      const saved = rangeTerm(ranges[i], "!").length + 1 + rangeTerm(ranges[i + 1], "!").length
+        - rangeTerm({ s: ranges[i].s, e: ranges[i + 1].e }, "!").length;
+      if (gap < bestGap || (gap === bestGap && saved > bestSaved)) { best = i; bestGap = gap; bestSaved = saved; }
+    }
+    hidden += bestGap;
+    ranges.splice(best, 2, { s: ranges[best].s, e: ranges[best + 1].e });
+  }
+  return { ranges, hidden };
 };
 
 // ─── REUSABLE UI ─────────────────────────────────────────────────────────────
 
 const s = { // shared micro-styles
-  card: { background: "rgba(255,255,255,0.02)", borderRadius: 11, border: "1px solid rgba(255,255,255,0.05)", marginBottom: 10, overflow: "hidden" },
+  card: { background: "rgba(255,255,255,0.02)", borderRadius: 12, border: "1px solid rgba(255,255,255,0.05)", marginBottom: 12, overflow: "hidden" },
   mono: { fontFamily: "'JetBrains Mono',monospace" },
 };
 
 const Toggle = ({ on, set }) => (
-  <button onClick={() => set(!on)} style={{
-    width: 38, height: 21, borderRadius: 11, border: "none",
+  <button aria-pressed={on} onClick={() => set(!on)} style={{
+    width: 46, height: 26, borderRadius: 13, border: "none",
     background: on ? "#3dd8a5" : "#363644", position: "relative",
-    cursor: "pointer", transition: "background 0.15s", flexShrink: 0,
+    cursor: "pointer", transition: "background 0.15s", flexShrink: 0, padding: 0,
   }}>
     <span style={{
-      position: "absolute", top: 2, left: on ? 19 : 2,
-      width: 17, height: 17, borderRadius: 9, background: "#fff",
+      position: "absolute", top: 2, left: on ? 22 : 2,
+      width: 22, height: 22, borderRadius: 11, background: "#fff",
       transition: "left 0.12s", boxShadow: "0 1px 2px rgba(0,0,0,0.25)",
     }} />
   </button>
 );
 
-function Pill({ items, state }) {
+function Pill({ items, state, neutralEmpty }) {
   const ct = items.filter(e => state[e.key]).length;
   const t = items.length;
-  const color = ct === t ? "#3dd8a5" : ct === 0 ? "#ff6b6b" : "#ffc832";
-  const bg = ct === t ? "rgba(61,216,165,0.12)" : ct === 0 ? "rgba(255,100,100,0.1)" : "rgba(255,200,50,0.1)";
-  return <span style={{ fontSize: 9.5, fontWeight: 700, padding: "2px 6px", borderRadius: 5, background: bg, color, whiteSpace: "nowrap" }}>
-    {ct === t ? `All ${t}` : ct === 0 ? "None" : `${ct}/${t}`}
+  const empty = ct === 0;
+  const color = ct === t ? "#3dd8a5" : empty ? (neutralEmpty ? "#6a6a7a" : "#ff6b6b") : "#ffc832";
+  const bg = ct === t ? "rgba(61,216,165,0.12)" : empty ? (neutralEmpty ? "rgba(255,255,255,0.04)" : "rgba(255,100,100,0.1)") : "rgba(255,200,50,0.1)";
+  return <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 6, background: bg, color, whiteSpace: "nowrap" }}>
+    {ct === t ? `All ${t}` : empty ? "None" : `${ct}/${t}`}
   </span>;
 }
 
 function BulkBtns({ items, setState, setPreset }) {
   const go = val => { setState(p => { const n = { ...p }; items.forEach(e => n[e.key] = val); return n; }); setPreset(null); };
-  return <div style={{ display: "flex", gap: 4 }}>
+  return <div style={{ display: "flex", gap: 6 }}>
     {[["All on", true], ["All off", false]].map(([l, v]) => (
-      <button key={l} onClick={() => go(v)} style={{ fontSize: 9.5, padding: "2px 8px", borderRadius: 5, border: "1px solid rgba(255,255,255,0.06)", background: "transparent", color: "#5a5a6a", cursor: "pointer" }}>{l}</button>
+      <button key={l} onClick={() => go(v)} style={{ fontSize: 12, padding: "6px 14px", borderRadius: 7, border: "1px solid rgba(255,255,255,0.08)", background: "transparent", color: "#8a8a9a", cursor: "pointer" }}>{l}</button>
     ))}
   </div>;
 }
 
 function ItemRow({ item, checked, toggle }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 0", gap: 8 }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 0", gap: 10 }}>
       <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 5, fontSize: 12.5, color: "#bbbbc8" }}>
-          {item.icon && <span style={{ fontSize: 12, flexShrink: 0 }}>{item.icon}</span>}
+        <div style={{ display: "flex", alignItems: "baseline", gap: 6, fontSize: 14.5, color: "#c8c8d4" }}>
+          {item.icon && <span style={{ fontSize: 13.5, flexShrink: 0 }}>{item.icon}</span>}
           <span>{item.label}</span>
-          {item.dex && <span style={{ ...s.mono, fontSize: 9.5, color: "#444458", flexShrink: 0 }}>#{item.dex}</span>}
+          {item.dex && <span style={{ ...s.mono, fontSize: 11, color: "#55556a", flexShrink: 0 }}>#{item.dex}</span>}
         </div>
-        {(item.note || item.tip) && <div style={{ fontSize: 10, color: "#444458", marginLeft: item.icon ? 19 : 0, marginTop: 1 }}>{item.note || item.tip}</div>}
+        {(item.note || item.tip) && <div style={{ fontSize: 11.5, color: "#55556a", marginLeft: item.icon ? 20 : 0, marginTop: 2 }}>{item.note || item.tip}</div>}
       </div>
       <Toggle on={checked} set={toggle} />
     </div>
@@ -281,23 +305,23 @@ function ItemRow({ item, checked, toggle }) {
 }
 
 // Flat section (core, optional)
-function Section({ emoji, title, subtitle, items, state, setState, setPreset, startOpen }) {
+function Section({ emoji, title, subtitle, items, state, setState, setPreset, neutralEmpty, startOpen }) {
   const [open, setOpen] = useState(startOpen || false);
   return (
     <div style={s.card}>
-      <button onClick={() => setOpen(!open)} style={{ width: "100%", background: "none", border: "none", cursor: "pointer", padding: "11px 13px", display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 14 }}>{emoji}</span>
+      <button onClick={() => setOpen(!open)} style={{ width: "100%", background: "none", border: "none", cursor: "pointer", padding: "14px 15px", display: "flex", alignItems: "center", gap: 9 }}>
+        <span style={{ fontSize: 16 }}>{emoji}</span>
         <div style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: "#dddde8" }}>{title}</span>
-          {!open && subtitle && <div style={{ fontSize: 9.5, color: "#4a4a58", marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{subtitle}</div>}
+          <span style={{ fontSize: 14.5, fontWeight: 700, color: "#dddde8" }}>{title}</span>
+          {!open && subtitle && <div style={{ fontSize: 11, color: "#5a5a6c", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{subtitle}</div>}
         </div>
-        <Pill items={items} state={state} />
-        <span style={{ color: "#3a3a48", fontSize: 12, transition: "transform 0.2s", transform: open ? "rotate(180deg)" : "none" }}>▾</span>
+        <Pill items={items} state={state} neutralEmpty={neutralEmpty} />
+        <span style={{ color: "#3a3a48", fontSize: 13, transition: "transform 0.2s", transform: open ? "rotate(180deg)" : "none" }}>▾</span>
       </button>
       {open && (
-        <div style={{ padding: "0 13px 10px" }}>
-          {subtitle && <div style={{ fontSize: 10.5, color: "#4a4a58", marginBottom: 6, lineHeight: 1.4 }}>{subtitle}</div>}
-          <div style={{ marginBottom: 6 }}><BulkBtns items={items} setState={setState} setPreset={setPreset} /></div>
+        <div style={{ padding: "0 15px 12px" }}>
+          {subtitle && <div style={{ fontSize: 12, color: "#5a5a6c", marginBottom: 8, lineHeight: 1.45 }}>{subtitle}</div>}
+          <div style={{ marginBottom: 8 }}><BulkBtns items={items} setState={setState} setPreset={setPreset} /></div>
           {items.map(e => <ItemRow key={e.key} item={e} checked={state[e.key]} toggle={v => { setState(p => ({ ...p, [e.key]: v })); setPreset(null); }} />)}
         </div>
       )}
@@ -306,58 +330,58 @@ function Section({ emoji, title, subtitle, items, state, setState, setPreset, st
 }
 
 // Grouped section (Branching & Variants, Hard to Get — subsections with their own all-on/off)
-function GroupedSection({ emoji, title, subtitle, groups, allItems, state, setState, setPreset }) {
+function GroupedSection({ emoji, title, subtitle, groups, allItems, state, setState, setPreset, neutralEmpty }) {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState({});
   const toggleGroup = g => setExpanded(p => ({ ...p, [g]: !p[g] }));
 
   return (
     <div style={s.card}>
-      <button onClick={() => setOpen(!open)} style={{ width: "100%", background: "none", border: "none", cursor: "pointer", padding: "11px 13px", display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 14 }}>{emoji}</span>
+      <button onClick={() => setOpen(!open)} style={{ width: "100%", background: "none", border: "none", cursor: "pointer", padding: "14px 15px", display: "flex", alignItems: "center", gap: 9 }}>
+        <span style={{ fontSize: 16 }}>{emoji}</span>
         <div style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: "#dddde8" }}>{title}</span>
-          {!open && subtitle && <div style={{ fontSize: 9.5, color: "#4a4a58", marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{subtitle}</div>}
+          <span style={{ fontSize: 14.5, fontWeight: 700, color: "#dddde8" }}>{title}</span>
+          {!open && subtitle && <div style={{ fontSize: 11, color: "#5a5a6c", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{subtitle}</div>}
         </div>
-        <Pill items={allItems} state={state} />
-        <span style={{ color: "#3a3a48", fontSize: 12, transition: "transform 0.2s", transform: open ? "rotate(180deg)" : "none" }}>▾</span>
+        <Pill items={allItems} state={state} neutralEmpty={neutralEmpty} />
+        <span style={{ color: "#3a3a48", fontSize: 13, transition: "transform 0.2s", transform: open ? "rotate(180deg)" : "none" }}>▾</span>
       </button>
       {open && (
-        <div style={{ padding: "0 13px 10px" }}>
-          {subtitle && <div style={{ fontSize: 10.5, color: "#4a4a58", marginBottom: 6, lineHeight: 1.4 }}>{subtitle}</div>}
-          <div style={{ marginBottom: 8 }}><BulkBtns items={allItems} setState={setState} setPreset={setPreset} /></div>
+        <div style={{ padding: "0 15px 12px" }}>
+          {subtitle && <div style={{ fontSize: 12, color: "#5a5a6c", marginBottom: 8, lineHeight: 1.45 }}>{subtitle}</div>}
+          <div style={{ marginBottom: 10 }}><BulkBtns items={allItems} setState={setState} setPreset={setPreset} /></div>
           {groups.map(g => {
             const isOpen = expanded[g.group];
             const gCt = g.items.filter(e => state[e.key]).length;
             const gT = g.items.length;
             return (
-              <div key={g.group} style={{ marginBottom: 4 }}>
+              <div key={g.group} style={{ marginBottom: 5 }}>
                 <div role="button" tabIndex={0} onClick={() => toggleGroup(g.group)}
                   onKeyDown={e => { if (e.key === "Enter" || e.key === " ") toggleGroup(g.group); }}
                   style={{
-                    width: "100%", boxSizing: "border-box", background: "rgba(255,255,255,0.015)", borderRadius: 7,
-                    cursor: "pointer", padding: "7px 10px", display: "flex", alignItems: "center", gap: 6,
-                    marginBottom: isOpen ? 2 : 0,
+                    width: "100%", boxSizing: "border-box", background: "rgba(255,255,255,0.015)", borderRadius: 8,
+                    cursor: "pointer", padding: "11px 12px", display: "flex", alignItems: "center", gap: 7,
+                    marginBottom: isOpen ? 3 : 0,
                   }}>
-                  <span style={{ fontSize: 11.5, fontWeight: 600, color: "#8a8a9a", flex: 1, textAlign: "left" }}>{g.group}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "#9a9aaa", flex: 1, textAlign: "left" }}>{g.group}</span>
                   <span style={{
-                    fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 4,
-                    background: gCt === gT ? "rgba(61,216,165,0.1)" : gCt === 0 ? "rgba(255,100,100,0.08)" : "rgba(255,200,50,0.08)",
-                    color: gCt === gT ? "#3dd8a5" : gCt === 0 ? "#ff6b6b" : "#ffc832",
+                    fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 5,
+                    background: gCt === gT ? "rgba(61,216,165,0.1)" : gCt === 0 ? (neutralEmpty ? "rgba(255,255,255,0.04)" : "rgba(255,100,100,0.08)") : "rgba(255,200,50,0.08)",
+                    color: gCt === gT ? "#3dd8a5" : gCt === 0 ? (neutralEmpty ? "#6a6a7a" : "#ff6b6b") : "#ffc832",
                   }}>{gCt}/{gT}</span>
-                  <div style={{ display: "flex", gap: 3 }} onClick={e => e.stopPropagation()}>
+                  <div style={{ display: "flex", gap: 4 }} onClick={e => e.stopPropagation()}>
                     {[["On", true], ["Off", false]].map(([l, v]) => (
                       <button key={l} onClick={() => { setState(p => { const n = { ...p }; g.items.forEach(i => n[i.key] = v); return n; }); setPreset(null); }} style={{
-                        fontSize: 9, padding: "1px 6px", borderRadius: 4,
-                        border: "1px solid rgba(255,255,255,0.05)", background: "transparent",
-                        color: "#555568", cursor: "pointer",
+                        fontSize: 11, padding: "5px 11px", borderRadius: 6,
+                        border: "1px solid rgba(255,255,255,0.07)", background: "transparent",
+                        color: "#77778a", cursor: "pointer",
                       }}>{l}</button>
                     ))}
                   </div>
-                  <span style={{ color: "#3a3a48", fontSize: 10, transition: "transform 0.2s", transform: isOpen ? "rotate(180deg)" : "none" }}>▾</span>
+                  <span style={{ color: "#3a3a48", fontSize: 11, transition: "transform 0.2s", transform: isOpen ? "rotate(180deg)" : "none" }}>▾</span>
                 </div>
                 {isOpen && (
-                  <div style={{ paddingLeft: 10 }}>
+                  <div style={{ paddingLeft: 12 }}>
                     {g.items.map(e => <ItemRow key={e.key} item={e} checked={state[e.key]} toggle={v => { setState(p => ({ ...p, [e.key]: v })); setPreset(null); }} />)}
                   </div>
                 )}
@@ -372,41 +396,72 @@ function GroupedSection({ emoji, title, subtitle, groups, allItems, state, setSt
 
 // ─── MAIN APP ────────────────────────────────────────────────────────────────
 
+// Each mode keeps its own toggle state: transfer mode starts from the Normal
+// preset (exclude keepers), find mode starts empty (select what to look for).
+const initTransferState = () => ({ ...PRESETS.normal, customAge: "", years: mkYearsOff() });
+const initFindState = () => ({
+  core: mkOff(CORE), opt: mkOff(OPTIONAL),
+  bv: mkOff(ALL_BRANCHING_ITEMS), htg: mkOff(ALL_HARD_TO_GET_ITEMS),
+  age: "none", customAge: "", years: mkYearsOff(),
+});
+
 function App() {
+  const [mode, setMode] = useState("transfer"); // "transfer" | "find"
   const [preset, setPreset] = useState("normal");
-  const d = PRESETS.normal;
-  const [core, setCore] = useState(d.core);
-  const [opt, setOpt] = useState(d.opt);
-  const [bv, setBv] = useState(d.bv);
-  const [htg, setHtg] = useState(d.htg);
-  const [age, setAge] = useState("30");        // "none" | preset value | "custom"
-  const [customAge, setCustomAge] = useState(""); // days, used when age === "custom"
-  const [years, setYears] = useState(mkYearsOff());
+  const [slabs, setSlabs] = useState({ transfer: initTransferState(), find: initFindState() });
   const [copied, setCopied] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
 
+  const st = slabs[mode];
+  const find = mode === "find";
+  // Field updater scoped to the active mode; accepts a value or an updater fn.
+  const patch = useCallback(field => updater => setSlabs(p => ({
+    ...p, [mode]: { ...p[mode], [field]: typeof updater === "function" ? updater(p[mode][field]) : updater },
+  })), [mode]);
+  const clearPreset = find ? () => {} : setPreset;
+
   const applyPreset = useCallback(p => {
-    setPreset(p); const v = PRESETS[p];
-    setCore(v.core); setOpt(v.opt); setBv(v.bv); setHtg(v.htg);
-    setAge(v.age); setCustomAge(""); setYears(mkYearsOff());
+    setPreset(p);
+    setSlabs(prev => ({ ...prev, transfer: { ...PRESETS[p], customAge: "", years: mkYearsOff() } }));
   }, []);
 
-  const ageDays = age === "custom" ? (/^\d+$/.test(customAge) && +customAge > 0 ? customAge : null)
-    : age !== "none" ? age : null;
-  const excludedYears = YEARS.filter(y => years[y]);
+  const ageDays = st.age === "custom" ? (/^\d+$/.test(st.customAge) && +st.customAge > 0 ? st.customAge : null)
+    : st.age !== "none" ? st.age : null;
+  const excludedYears = YEARS.filter(y => st.years[y]);
 
-  const searchString = useMemo(() => {
-    const parts = [];
-    const add = (items, st) => items.forEach(e => { if (st[e.key]) parts.push(e.q); });
-    add(CORE, core); add(OPTIONAL, opt);
-    const dexNums = [];
-    ALL_BRANCHING_ITEMS.forEach(e => { if (bv[e.key]) dexNums.push(e.dex); });
-    ALL_HARD_TO_GET_ITEMS.forEach(e => { if (htg[e.key]) dexNums.push(e.dex); });
-    parts.push(...mergeDexExclusions(dexNums));
-    excludedYears.forEach(y => parts.push(`!year${y}`));
-    if (ageDays) parts.push(`age0-${ageDays}`);
-    return parts.join("&");
-  }, [core, opt, bv, htg, ageDays, excludedYears.join(",")]);
+  const { searchString, compactedCount } = useMemo(() => {
+    const enabledDex = [];
+    ALL_BRANCHING_ITEMS.forEach(e => { if (st.bv[e.key]) enabledDex.push(e.dex); });
+    ALL_HARD_TO_GET_ITEMS.forEach(e => { if (st.htg[e.key]) enabledDex.push(e.dex); });
+    const yearTerms = excludedYears.map(y => `!year${y}`);
+    const ageTerms = ageDays ? [`age0-${ageDays}`] : [];
+
+    if (!find) {
+      // Transfer mode: AND of exclusions. Results = transfer candidates.
+      const keywords = [];
+      CORE.forEach(e => { if (st.core[e.key]) keywords.push(e.q); });
+      OPTIONAL.forEach(e => { if (st.opt[e.key]) keywords.push(e.q); });
+      const fixed = [...keywords, ...yearTerms, ...ageTerms];
+      let ranges = toRanges(enabledDex);
+      let hidden = 0;
+      const fixedLen = fixed.join("&").length;
+      const budget = COMPACT_TARGET - fixedLen - (fixed.length && ranges.length ? 1 : 0);
+      if (rangesLen(ranges) > budget) ({ ranges, hidden } = compactRanges(ranges, budget));
+      const str = [...keywords, ...ranges.map(r => rangeTerm(r, "!")), ...yearTerms, ...ageTerms].join("&");
+      return { searchString: str, compactedCount: hidden };
+    }
+
+    // Find mode: AND of OR-clauses (GO syntax: `,` = OR within a clause,
+    // `&` = AND between clauses). Species clause AND qualities clause:
+    // e.g. "83,115&shiny,4*" = (Farfetch'd OR Kangaskhan) AND (shiny OR perfect).
+    const species = toRanges(enabledDex).map(r => rangeTerm(r, "")).join(",");
+    const qualities = [
+      ...CORE.filter(e => st.core[e.key]),
+      ...OPTIONAL.filter(e => st.opt[e.key]),
+    ].map(e => e.q.replace(/^!/, "")).join(",");
+    const str = [species, qualities, ...yearTerms, ...ageTerms].filter(Boolean).join("&");
+    return { searchString: str, compactedCount: 0 };
+  }, [st, find, ageDays, excludedYears.join(",")]);
 
   const len = searchString.length;
 
@@ -419,132 +474,180 @@ function App() {
   };
 
   const ageSummary = [
-    ageDays ? `≤${ageDays}d` : age === "custom" ? "Custom…" : "Off",
+    ageDays ? `≤${ageDays}d` : st.age === "custom" ? "Custom…" : "Off",
     excludedYears.length ? `−${excludedYears.length} yr` : null,
   ].filter(Boolean).join(" ");
   const ageActive = !!ageDays || excludedYears.length > 0;
 
+  const chip = (active, activeBg, activeColor) => ({
+    padding: "9px 13px", borderRadius: 8, border: "none", cursor: "pointer",
+    minHeight: 40, background: active ? activeBg : "rgba(255,255,255,0.02)",
+    outline: active ? `1px solid ${activeColor}44` : "none",
+    fontSize: 13, color: active ? activeColor : "#6a6a7a",
+    fontWeight: active ? 600 : 400,
+  });
+
   return (
     <div style={{ minHeight: "100vh", background: "#13131b", fontFamily: "'DM Sans',sans-serif", color: "#dddde8" }}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+      <style>{`
+        * { -webkit-tap-highlight-color: transparent; }
+        button, [role="button"] { touch-action: manipulation; }
+        html { -webkit-text-size-adjust: 100%; }
+        input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+      `}</style>
 
       {/* Header */}
       <div style={{ background: "linear-gradient(145deg,#183848 0%,#13131b 55%)", borderBottom: "1px solid rgba(61,216,165,0.1)", padding: "18px 14px 14px" }}>
         <div style={{ maxWidth: 580, margin: "0 auto" }}>
-          <h1 style={{ fontSize: 18, fontWeight: 700, margin: "0 0 2px", display: "flex", alignItems: "center", gap: 7 }}>
+          <h1 style={{ fontSize: 20, fontWeight: 700, margin: "0 0 3px", display: "flex", alignItems: "center", gap: 8 }}>
             <span>📦</span>
             <span style={{ background: "linear-gradient(90deg,#3dd8a5,#60e8c0)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Transfer Filter Builder</span>
           </h1>
-          <p style={{ fontSize: 11, color: "#4a7080", margin: 0 }}>Pokémon GO search string builder — uses dex numbers for compact queries</p>
+          <p style={{ fontSize: 12.5, color: "#4a7080", margin: 0 }}>Pokémon GO search string builder — uses dex numbers for compact queries</p>
         </div>
       </div>
 
-      <div style={{ maxWidth: 580, margin: "0 auto", padding: "10px 10px 120px" }}>
+      <div style={{ maxWidth: 580, margin: "0 auto", padding: "12px 12px 120px" }}>
 
         {/* ── Sticky Output ── */}
-        <div style={{ position: "sticky", top: 0, zIndex: 100, background: "#13131b", paddingTop: 5, paddingBottom: 3, borderBottom: "1px solid rgba(255,255,255,0.03)", marginBottom: 10 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-            <span style={{ fontSize: 9, color: "#3a4858", textTransform: "uppercase", letterSpacing: ".08em", fontWeight: 600 }}>Search String</span>
-            <span style={{ ...s.mono, fontSize: 9, color: len > 450 ? "#ff6b6b" : len > 350 ? "#ffd93d" : "#3a4858" }}>{len} chars{len > 450 ? " ⚠" : ""}</span>
+        <div style={{ position: "sticky", top: 0, zIndex: 100, background: "#13131b", paddingTop: 6, paddingBottom: 4, borderBottom: "1px solid rgba(255,255,255,0.03)", marginBottom: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+            <span style={{ fontSize: 10.5, color: "#3a4858", textTransform: "uppercase", letterSpacing: ".08em", fontWeight: 600 }}>
+              {find ? "Find Query" : "Transfer Query"}
+            </span>
+            <span style={{ ...s.mono, fontSize: 10.5, color: len > CHAR_LIMIT ? "#ff6b6b" : len > 400 ? "#ffd93d" : "#3a4858" }}>
+              {len}/{CHAR_LIMIT} chars{len > CHAR_LIMIT ? " ⚠ too long!" : ""}
+            </span>
           </div>
           <div onClick={handleCopy} style={{
             background: "rgba(61,216,165,0.035)", border: "1px solid rgba(61,216,165,0.13)",
-            borderRadius: 8, padding: "8px 10px", cursor: "pointer", position: "relative",
-            ...s.mono, fontSize: 10, color: "#7aaa98", lineHeight: 1.55,
-            wordBreak: "break-all", maxHeight: 80, overflowY: "auto",
+            borderRadius: 9, padding: "10px 12px", cursor: "pointer", position: "relative",
+            ...s.mono, fontSize: 11.5, color: "#7aaa98", lineHeight: 1.55,
+            wordBreak: "break-all", maxHeight: 96, overflowY: "auto",
           }}>
-            {searchString || <span style={{ color: "#2a2a38" }}>No filters selected</span>}
+            {searchString || <span style={{ color: "#3a3a4a" }}>Nothing selected yet — toggle some filters below</span>}
             <span style={{
-              position: "absolute", top: 4, right: 6,
+              position: "absolute", top: 5, right: 7,
               background: copied ? "#3dd8a5" : "rgba(61,216,165,0.1)",
               color: copied ? "#13131b" : "#3dd8a5",
-              padding: "2px 6px", borderRadius: 4, fontSize: 9, fontWeight: 700,
+              padding: "4px 9px", borderRadius: 5, fontSize: 11, fontWeight: 700,
               fontFamily: "'DM Sans',sans-serif",
             }}>{copied ? "✓ Copied!" : "Copy"}</span>
           </div>
+          {compactedCount > 0 && (
+            <div style={{ fontSize: 11, color: "#ffc832", marginTop: 4, lineHeight: 1.4 }}>
+              ⚡ Auto-compacted to fit the {CHAR_LIMIT}-char limit: nearby dex ranges merged, protecting {compactedCount} extra in-between species.
+            </div>
+          )}
         </div>
 
-        {/* ── Presets ── */}
-        <div style={{ display: "flex", gap: 5, marginBottom: 10 }}>
-          {[["quick", "Quick Clean", "Max exclusions, 7d"], ["normal", "Normal", "Safe defaults, 30d"], ["deep", "Deep Dive", "Fewer exclusions, all ages"]].map(([k, l, d]) => (
-            <button key={k} onClick={() => applyPreset(k)} style={{
-              flex: 1, padding: "7px 8px", borderRadius: 8, cursor: "pointer", textAlign: "left",
-              background: preset === k ? "rgba(61,216,165,0.07)" : "rgba(255,255,255,0.015)",
-              border: `1px solid ${preset === k ? "rgba(61,216,165,0.25)" : "rgba(255,255,255,0.03)"}`,
+        {/* ── Mode Switch ── */}
+        <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+          {[["transfer", "📦 Transfer Cleanup", "Exclude keepers — results are safe to transfer"],
+            ["find", "🔍 Find Pokémon", "Select what to search for — results match filters"]].map(([k, l, d]) => (
+            <button key={k} onClick={() => setMode(k)} style={{
+              flex: 1, padding: "10px 10px", borderRadius: 9, cursor: "pointer", textAlign: "left",
+              background: mode === k ? "rgba(61,216,165,0.09)" : "rgba(255,255,255,0.015)",
+              border: `1px solid ${mode === k ? "rgba(61,216,165,0.3)" : "rgba(255,255,255,0.04)"}`,
             }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: preset === k ? "#3dd8a5" : "#9090a0" }}>{l}</div>
-              <div style={{ fontSize: 9, color: "#444458", marginTop: 1 }}>{d}</div>
+              <div style={{ fontSize: 13.5, fontWeight: 700, color: mode === k ? "#3dd8a5" : "#9090a0" }}>{l}</div>
+              <div style={{ fontSize: 11, color: "#55556a", marginTop: 2, lineHeight: 1.35 }}>{d}</div>
             </button>
           ))}
         </div>
 
+        {/* ── Presets (transfer) / hint (find) ── */}
+        {!find ? (
+          <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+            {[["quick", "Quick Clean", "Max exclusions, 7d"], ["normal", "Normal", "Safe defaults, 30d"], ["deep", "Deep Dive", "Fewer exclusions, all ages"]].map(([k, l, d]) => (
+              <button key={k} onClick={() => applyPreset(k)} style={{
+                flex: 1, padding: "10px 10px", borderRadius: 9, cursor: "pointer", textAlign: "left",
+                background: preset === k ? "rgba(61,216,165,0.07)" : "rgba(255,255,255,0.015)",
+                border: `1px solid ${preset === k ? "rgba(61,216,165,0.25)" : "rgba(255,255,255,0.03)"}`,
+              }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: preset === k ? "#3dd8a5" : "#9090a0" }}>{l}</div>
+                <div style={{ fontSize: 10.5, color: "#55556a", marginTop: 2, lineHeight: 1.3 }}>{d}</div>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div style={{ ...s.card, padding: "12px 15px", fontSize: 12.5, color: "#7a8a95", lineHeight: 1.55 }}>
+            <b style={{ color: "#3dd8a5" }}>Find mode:</b> toggles now <b>select</b> Pokémon to show instead of excluding them.
+            Selected species combine with OR; selected qualities (from Core / Optional) narrow the results.
+            Example: turn on <i>Regional Exclusive</i> + <i>Shiny</i> + <i>Perfect IV</i> → every regional that is shiny <i>or</i> perfect.
+          </div>
+        )}
+
         {/* ── Sections ── */}
-        <Section emoji="🔒" title="Core Keepers" subtitle="Always excluded — never accidentally transfer these" items={CORE} state={core} setState={setCore} setPreset={setPreset} />
-        <Section emoji="🎯" title="Optional Exclusions" subtitle="Excluded by default — toggle off for deeper dives" items={OPTIONAL} state={opt} setState={setOpt} setPreset={setPreset} />
-        <GroupedSection emoji="🌿" title="Branching & Variants" subtitle="Branched evolutions, gender differences, regional & form variants" groups={BRANCHING_GROUPS} allItems={ALL_BRANCHING_ITEMS} state={bv} setState={setBv} setPreset={setPreset} />
-        <GroupedSection emoji="💎" title="Hard to Get" subtitle="Biome-locked, real-world regionals, and rare encounters" groups={HARD_TO_GET_GROUPS} allItems={ALL_HARD_TO_GET_ITEMS} state={htg} setState={setHtg} setPreset={setPreset} />
+        <Section emoji={find ? "✨" : "🔒"} title={find ? "Qualities" : "Core Keepers"}
+          subtitle={find ? "Show Pokémon matching any selected quality" : "Always excluded — never accidentally transfer these"}
+          items={CORE} state={st.core} setState={patch("core")} setPreset={clearPreset} neutralEmpty={find} />
+        <Section emoji={find ? "🏷" : "🎯"} title={find ? "More Qualities" : "Optional Exclusions"}
+          subtitle={find ? "Costume, shadow, size and other property matches" : "Excluded by default — toggle off for deeper dives"}
+          items={OPTIONAL} state={st.opt} setState={patch("opt")} setPreset={clearPreset} neutralEmpty={find} />
+        <GroupedSection emoji="🌿" title="Branching & Variants"
+          subtitle={find ? "Show any selected species" : "Branched evolutions, gender differences, regional & form variants"}
+          groups={BRANCHING_GROUPS} allItems={ALL_BRANCHING_ITEMS} state={st.bv} setState={patch("bv")} setPreset={clearPreset} neutralEmpty={find} />
+        <GroupedSection emoji="💎" title="Hard to Get"
+          subtitle={find ? "Show any selected species" : "Biome-locked, real-world regionals, and rare encounters"}
+          groups={HARD_TO_GET_GROUPS} allItems={ALL_HARD_TO_GET_ITEMS} state={st.htg} setState={patch("htg")} setPreset={clearPreset} neutralEmpty={find} />
 
         {/* ── Age Filter ── */}
-        <div style={{ ...s.card, padding: "11px 13px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <span style={{ fontSize: 14 }}>📅</span>
+        <div style={{ ...s.card, padding: "14px 15px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 10 }}>
+            <span style={{ fontSize: 16 }}>📅</span>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 700 }}>Age Filter</div>
-              <div style={{ fontSize: 10, color: "#4a4a58", marginTop: 1 }}>Newer catches first — older ones are better lucky trade fodder</div>
+              <div style={{ fontSize: 14.5, fontWeight: 700 }}>Age Filter</div>
+              <div style={{ fontSize: 11.5, color: "#55556a", marginTop: 2 }}>
+                {find ? "Only match recent catches, or skip whole years" : "Newer catches first — older ones are better lucky trade fodder"}
+              </div>
             </div>
             <span style={{
-              fontSize: 9.5, fontWeight: 700, padding: "2px 6px", borderRadius: 5,
-              background: ageActive ? "rgba(61,216,165,0.12)" : "rgba(255,100,100,0.1)",
-              color: ageActive ? "#3dd8a5" : "#ff6b6b",
+              fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 6,
+              background: ageActive ? "rgba(61,216,165,0.12)" : find ? "rgba(255,255,255,0.04)" : "rgba(255,100,100,0.1)",
+              color: ageActive ? "#3dd8a5" : find ? "#6a6a7a" : "#ff6b6b",
             }}>{ageSummary}</span>
           </div>
 
           {/* Preset age buttons */}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginBottom: 8 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 10 }}>
             {AGE_OPTIONS.map(o => (
-              <button key={o.value} onClick={() => { setAge(o.value); setCustomAge(""); setPreset(null); }} style={{
-                padding: "5px 9px", borderRadius: 6, border: "none", cursor: "pointer",
-                background: age === o.value ? "rgba(61,216,165,0.08)" : "rgba(255,255,255,0.02)",
-                outline: age === o.value ? "1px solid rgba(61,216,165,0.22)" : "none",
-                fontSize: 10.5, color: age === o.value ? "#dddde8" : "#5a5a68",
-                fontWeight: age === o.value ? 600 : 400,
-              }}>{o.label}</button>
+              <button key={o.value} onClick={() => { patch("age")(o.value); patch("customAge")(""); clearPreset(null); }}
+                style={chip(st.age === o.value, "rgba(61,216,165,0.08)", "#3dd8a5")}>{o.label}</button>
             ))}
             {/* Custom age input */}
             <div style={{
-              display: "flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 6,
-              background: age === "custom" ? "rgba(61,216,165,0.08)" : "rgba(255,255,255,0.02)",
-              outline: age === "custom" ? "1px solid rgba(61,216,165,0.22)" : "none",
+              display: "flex", alignItems: "center", gap: 5, padding: "4px 13px", borderRadius: 8, minHeight: 40, boxSizing: "border-box",
+              background: st.age === "custom" ? "rgba(61,216,165,0.08)" : "rgba(255,255,255,0.02)",
+              outline: st.age === "custom" ? "1px solid rgba(61,216,165,0.27)" : "none",
             }}>
-              <span style={{ fontSize: 10.5, color: age === "custom" ? "#dddde8" : "#5a5a68", fontWeight: age === "custom" ? 600 : 400 }}>Custom:</span>
+              <span style={{ fontSize: 13, color: st.age === "custom" ? "#3dd8a5" : "#6a6a7a", fontWeight: st.age === "custom" ? 600 : 400 }}>Custom:</span>
               <input
                 type="number" min="1" inputMode="numeric" placeholder="N"
-                value={customAge}
-                onFocus={() => { setAge("custom"); setPreset(null); }}
-                onChange={e => { setCustomAge(e.target.value.replace(/\D/g, "")); setAge("custom"); setPreset(null); }}
+                value={st.customAge}
+                onFocus={() => { patch("age")("custom"); clearPreset(null); }}
+                onChange={e => { patch("customAge")(e.target.value.replace(/\D/g, "")); patch("age")("custom"); clearPreset(null); }}
                 style={{
-                  width: 44, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-                  borderRadius: 4, color: "#dddde8", fontSize: 10.5, padding: "2px 5px",
+                  width: 56, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: 6, color: "#dddde8", fontSize: 16, padding: "4px 7px",
                   ...s.mono, outline: "none",
                 }}
               />
-              <span style={{ fontSize: 10.5, color: "#5a5a68" }}>days</span>
+              <span style={{ fontSize: 13, color: "#6a6a7a" }}>days</span>
             </div>
           </div>
 
           {/* Year exclusions */}
-          <div style={{ fontSize: 9.5, color: "#4a4a58", textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 600, marginBottom: 4 }}>
+          <div style={{ fontSize: 11, color: "#55556a", textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 600, marginBottom: 6 }}>
             Exclude catch years <span style={{ textTransform: "none", fontWeight: 400 }}>— hide Pokémon caught in these years</span>
           </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
             {YEARS.map(y => (
-              <button key={y} onClick={() => { setYears(p => ({ ...p, [y]: !p[y] })); setPreset(null); }} style={{
-                padding: "5px 9px", borderRadius: 6, border: "none", cursor: "pointer",
-                background: years[y] ? "rgba(255,200,50,0.1)" : "rgba(255,255,255,0.02)",
-                outline: years[y] ? "1px solid rgba(255,200,50,0.3)" : "none",
-                fontSize: 10.5, color: years[y] ? "#ffc832" : "#5a5a68",
-                fontWeight: years[y] ? 600 : 400, ...s.mono,
-              }}>{years[y] ? `!${y}` : y}</button>
+              <button key={y} onClick={() => { patch("years")(p => ({ ...p, [y]: !p[y] })); clearPreset(null); }}
+                style={{ ...chip(st.years[y], "rgba(255,200,50,0.1)", "#ffc832"), ...s.mono }}>
+                {st.years[y] ? `!${y}` : y}
+              </button>
             ))}
           </div>
         </div>
@@ -553,18 +656,19 @@ function App() {
         <div style={s.card}>
           <button onClick={() => setNotesOpen(!notesOpen)} style={{
             width: "100%", background: "none", border: "none", cursor: "pointer",
-            padding: "11px 13px", display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "14px 15px", display: "flex", alignItems: "center", justifyContent: "space-between",
           }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: "#5a5a6a" }}>📝 Notes & Tips</span>
-            <span style={{ color: "#3a3a48", fontSize: 12, transition: "transform 0.2s", transform: notesOpen ? "rotate(180deg)" : "none" }}>▾</span>
+            <span style={{ fontSize: 13.5, fontWeight: 600, color: "#7a7a8a" }}>📝 Notes & Tips</span>
+            <span style={{ color: "#3a3a48", fontSize: 13, transition: "transform 0.2s", transform: notesOpen ? "rotate(180deg)" : "none" }}>▾</span>
           </button>
           {notesOpen && (
-            <div style={{ padding: "0 13px 10px", fontSize: 10.5, color: "#5a5a68", lineHeight: 1.65 }}>
-              <p style={{ margin: "0 0 6px" }}><b style={{ color: "#8888a0" }}>How to use:</b> Copy → Pokémon GO → Storage → Search bar → Paste. Results are transfer candidates.</p>
-              <p style={{ margin: "0 0 6px" }}><b style={{ color: "#8888a0" }}>Why numbers?</b> Dex numbers (e.g. <code style={{ ...s.mono, fontSize: 9.5, background: "rgba(255,255,255,0.04)", padding: "1px 3px", borderRadius: 3 }}>!83</code> instead of <code style={{ ...s.mono, fontSize: 9.5, background: "rgba(255,255,255,0.04)", padding: "1px 3px", borderRadius: 3 }}>!farfetch'd</code>) are much shorter. Enabled Pokémon with consecutive dex numbers are automatically merged into ranges like <code style={{ ...s.mono, fontSize: 9.5, background: "rgba(255,255,255,0.04)", padding: "1px 3px", borderRadius: 3 }}>!265-269</code>. This keeps the string under the ~500 char limit.</p>
-              <p style={{ margin: "0 0 6px" }}><b style={{ color: "#8888a0" }}>Lucky trades:</b> Pokémon older than ~1 year have higher lucky trade odds. Age filter helps you transfer newer catches first.</p>
-              <p style={{ margin: "0 0 6px" }}><b style={{ color: "#8888a0" }}>Year exclusions:</b> <code style={{ ...s.mono, fontSize: 9.5, background: "rgba(255,255,255,0.04)", padding: "1px 3px", borderRadius: 3 }}>!year2016</code> hides everything caught in 2016 — handy for protecting old catches with high lucky-trade odds.</p>
-              <p style={{ margin: 0 }}><b style={{ color: "#8888a0" }}>Reference:</b>{" "}<a href="https://niantic.helpshift.com/hc/en/6-pokemon-go/faq/1486-searching-filtering-your-pokemon-inventory/" target="_blank" rel="noopener" style={{ color: "#3dd8a5" }}>Niantic's official search guide</a>. Dex number search and ranges are confirmed by the <a href="https://pokemongo.fandom.com/wiki/Pok%C3%A9mon_search" target="_blank" rel="noopener" style={{ color: "#3dd8a5" }}>Pokémon GO Wiki</a>.</p>
+            <div style={{ padding: "0 15px 12px", fontSize: 12.5, color: "#6a6a7a", lineHeight: 1.65 }}>
+              <p style={{ margin: "0 0 7px" }}><b style={{ color: "#9898b0" }}>How to use:</b> Copy → Pokémon GO → Storage → Search bar → Paste. In Transfer mode, results are transfer candidates. In Find mode, results are the Pokémon you selected.</p>
+              <p style={{ margin: "0 0 7px" }}><b style={{ color: "#9898b0" }}>Why numbers?</b> Dex numbers (e.g. <code style={{ ...s.mono, fontSize: 11, background: "rgba(255,255,255,0.04)", padding: "1px 4px", borderRadius: 3 }}>!83</code> instead of <code style={{ ...s.mono, fontSize: 11, background: "rgba(255,255,255,0.04)", padding: "1px 4px", borderRadius: 3 }}>!farfetch'd</code>) are much shorter. Enabled Pokémon with consecutive dex numbers are automatically merged into ranges like <code style={{ ...s.mono, fontSize: 11, background: "rgba(255,255,255,0.04)", padding: "1px 4px", borderRadius: 3 }}>!265-269</code>.</p>
+              <p style={{ margin: "0 0 7px" }}><b style={{ color: "#9898b0" }}>Auto-compact:</b> if a Transfer query would exceed the game's ~{CHAR_LIMIT}-char limit, nearby ranges are merged (e.g. <code style={{ ...s.mono, fontSize: 11, background: "rgba(255,255,255,0.04)", padding: "1px 4px", borderRadius: 3 }}>!103&!105</code> → <code style={{ ...s.mono, fontSize: 11, background: "rgba(255,255,255,0.04)", padding: "1px 4px", borderRadius: 3 }}>!103-105</code>). This only ever protects <i>more</i> Pokémon — the in-between species just won't show as transfer candidates.</p>
+              <p style={{ margin: "0 0 7px" }}><b style={{ color: "#9898b0" }}>Find mode syntax:</b> <code style={{ ...s.mono, fontSize: 11, background: "rgba(255,255,255,0.04)", padding: "1px 4px", borderRadius: 3 }}>,</code> means OR and <code style={{ ...s.mono, fontSize: 11, background: "rgba(255,255,255,0.04)", padding: "1px 4px", borderRadius: 3 }}>&</code> means AND — e.g. <code style={{ ...s.mono, fontSize: 11, background: "rgba(255,255,255,0.04)", padding: "1px 4px", borderRadius: 3 }}>83,115&shiny,4*</code> shows Farfetch'd or Kangaskhan that are shiny or perfect.</p>
+              <p style={{ margin: "0 0 7px" }}><b style={{ color: "#9898b0" }}>Lucky trades:</b> Pokémon older than ~1 year have higher lucky trade odds. Age filter helps you transfer newer catches first; year exclusions like <code style={{ ...s.mono, fontSize: 11, background: "rgba(255,255,255,0.04)", padding: "1px 4px", borderRadius: 3 }}>!year2016</code> protect whole years of old catches.</p>
+              <p style={{ margin: 0 }}><b style={{ color: "#9898b0" }}>Reference:</b>{" "}<a href="https://niantic.helpshift.com/hc/en/6-pokemon-go/faq/1486-searching-filtering-your-pokemon-inventory/" target="_blank" rel="noopener" style={{ color: "#3dd8a5" }}>Niantic's official search guide</a>. Dex number search and ranges are confirmed by the <a href="https://pokemongo.fandom.com/wiki/Pok%C3%A9mon_search" target="_blank" rel="noopener" style={{ color: "#3dd8a5" }}>Pokémon GO Wiki</a>.</p>
             </div>
           )}
         </div>
