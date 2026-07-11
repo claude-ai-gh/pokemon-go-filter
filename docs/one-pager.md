@@ -24,7 +24,7 @@ Pokémon GO players who actively manage their storage — typically level 30+ tr
 
 **Presets** — Quick Clean (7-day, max exclusions), Normal Session (30-day, safe defaults), Deep Dive (all ages, minimal exclusions). One tap configures the entire tool.
 
-**8 Filter Sections** — Core Keepers, Optional Exclusions, Gender-Dependent Pokémon, Rare Form Variants, Rare & Regional-Form Species, Biome-Locked Species, Regional Exclusives, and Age Filter. All sections are collapsible with at-a-glance status pills.
+**5 Filter Sections** — Core Keepers, Optional Exclusions, Branching & Variants, Hard to Get,and Age Filter. All sections are collapsible with at-a-glance status pills. Some may have subsections (like "Branching & Variants" and "Hard to Get")
 
 **Hierarchical Controls** — section-level all on/off, sub-group toggles (e.g., regionals grouped by generation), and individual Pokémon toggles. Each item shows its Pokédex number and a brief note explaining why it's worth keeping.
 
